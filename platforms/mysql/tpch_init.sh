@@ -137,6 +137,6 @@ for table in ${TABLES}; do
             LOAD DATA LOCAL INFILE '${DATA_ROOT}/lineitem.tbl' INTO TABLE LINEITEM FIELDS TERMINATED BY '|';
         "
     else
-        mysql -p${PASSWORD} --local-infile tpch -e "ERROR: Invalid table name ${table}"
+        echo "ERROR: Invalid table name ${table}"
     fi
 done
