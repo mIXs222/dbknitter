@@ -1,5 +1,5 @@
 #!/bin/bash
-docker build -t client-image cloudlab/client && \
-    docker build -t mysql-image cloudlab/mysql && \
-    docker build -t mongodb-image cloudlab/mongodb && \
+docker build -t client-image -f cloudlab/client/Dockerfile . && \
+    docker build -t mysql-image -f cloudlab/mysql/Dockerfile . && \
+    docker build -t mongodb-image -f cloudlab/mongodb/Dockerfile . && \
     docker compose -f cloudlab/docker-compose.yml up
