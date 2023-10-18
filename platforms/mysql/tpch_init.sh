@@ -10,10 +10,11 @@ if [ "$#" -ne 2 ]
 then
   echo "Require 2 argument (DATA_ROOT, TABLES), $# provided"
   echo "Example: tpch_init.sh /path/to/data nation,lineitem,part"
+  echo "Example: tpch_init.sh /path/to/data nation,region,part,supplier,partsupp,customer,orders,lineitem"
   exit 1
 fi
 
-PASSWORD=password  # TODO: change this
+PASSWORD="my-secret-pw"
 
 DATA_ROOT=$1
 TABLES_STR=$2
