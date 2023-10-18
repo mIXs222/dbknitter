@@ -11,9 +11,10 @@ RUN python -m pip install pandas pymongo
 RUN apt-get install mysql-client --yes
 
 # Install DBKnitter
+COPY ./requirements.txt /dbknitter/requirements.txt
+RUN pip install -r /dbknitter/requirements.txt
 COPY . /dbknitter
 WORKDIR /dbknitter
-RUN pip install -r requirements.txt
 RUN pip install .
 
 WORKDIR /
