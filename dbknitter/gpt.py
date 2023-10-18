@@ -3,9 +3,11 @@ import time
 import datetime
 import openai
 import os
+import argparse
 
-os.environ['OPENAI_API_KEY'] = "YOUR API TOKEN"
+os.environ['OPENAI_API_KEY'] = "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"
 openai.api_key = os.getenv("OPENAI_API_KEY")
+MAX_TOKEN=2000
 
 class Utility:
     def __init__(self):
@@ -13,102 +15,94 @@ class Utility:
     
     def get_current_time(self):
         current_datetime = datetime.datetime.now()
-        formatted_datetime = current_datetime.strftime("%Y-%m-%d-%H-%M-%S")
+        formatted_datetime = current_datetime.strftime("%Y%m%d_%H:%M:%S")
         return formatted_datetime
 util = Utility()
 
 
-# '''
-# data format:
-# {
-#     "choices": [
-#         {
-#             "text": "db.users.find({ age: { $gt: 30 } });"
-#         }
-#     ]
-# }
-# '''
-# class Single_Message_ChatGPTQuery:
-#     def __init__(self, input_params, headers):
-#         self.input_params = input_params
-#         self.input_prompt_len = len(self.input_params["prompt"])
-#         self.max_output_token_len = len(self.input_params["max_tokens"])
-        
-        
-#         self.headers = headers
-#         self.response = ""
-#         self.runtime = -1
-#         self.output_text = ""
-#         self.output_token_len = -1
-#         self.context = ""
-#         # self.tqs = -1
-        
-#     def set_output_text(self):
-#         assert self.output_text == ""
-#         assert self.output_token_len == -1
-#         self.output_text = self.response['choices'][0]['text']
-#         self.output_token_len = len(self.output_text)
-#         return self.output_text
-    
-#     def write_result(self):
-#         temp = list()
-#         temp.append("input_params,"+self.input_params)
-#         temp.append("input_prompt_len,"+self.input_prompt_len)
-#         temp.append("max_output_tokens,"+self.max_output_tokens)
-#         temp.append("headers,"+self.headers)
-#         temp.append("response,"+self.response)
-#         temp.append("runtime,"+self.runtime)
-#         temp.append("output_text,"+self.output_text)
-#         temp.append("output_token_len,"+self.output_token_len)
-#         temp.append("context,"+self.context)
-#         path_ = util.get_current_time() + "-" + self.input_params["prompt"][:8] + ".txt"  # Replace with the path to your file
-#         with open(path_, "w") as file:
-#             for elem in temp:
-#                 file.write(elem + "\n")
+''' 
+Example Prompt:
 
-
+- I have a mysql table named DETAILS and a mongoldb table named INTERESTS.
+- DETAILS has the columns NAME, AGE, ADDRESS. INTERESTS has the fields of NAME, INTEREST. INTEREST is a list of strings and can be empty.
+- But the user of my data thinks all data is stored in mysql.
+- They wrote the following query:
+- SELECT DETAILS.AGE, INTERESTS.INTEREST
+- FROM DETAILS JOIN  INTERESTS ON DETAILS.NAME = INTERESTS.NAME
+- Please generate a python code to execute this query. My mysql password is my-pwd. Output of the query must be written to a file name query_output.csv
 '''
-<api>
-response = openai.ChatCompletion.create(
-    model="gpt-3.5-turbo",
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Who won the world series in 2020?"},
-        {"role": "assistant", "content": "The Los Angeles Dodgers won the World Series in 2020."},
-        {"role": "user", "content": "Where was it played?"}
-    ]
-)
-<response>
-{
-    "choices": [
-        {
-        "finish_reason": "stop",
-        "index": 0,
-        "message": {
-            "content": "The 2020 World Series was played in Texas at Globe Life Field in Arlington.",
-            "role": "assistant"
-        }
-        }
-    ],
-    "created": 1677664795,
-    "id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW",
-    "model": "gpt-3.5-turbo-0613",
-    "object": "chat.completion",
-    "usage": {
-        "completion_tokens": 17,
-        "prompt_tokens": 57,
-        "total_tokens": 74
-    }
-}
 
-response['choices'][0]['message']['content']
-'''
+class DB_representation:
+    def __init__(self):
+        self.name = None
+        self.type = None
+        self.columns = list()
+        self.column_datatype = list()
+        self.special_case = None
+        
+    def sql_obj(self):
+        self.name = "DETAILS"
+        self.type = "mysql"
+        self.columns = ["col1", "col1"]
+        self.column_datatype = ["int", "str"]
+        self.special_case = None
+        self.admin_detail = ["MYSQL_DB" , "MYSQL_PWD", "MYSQL_USER", "MYSQL_HOST"]
+        
+    def mongo_obj(self):
+        self.name = "INTERESTS"
+        self.type = "mongodb"
+        self.columns = ["col3", "col4"]
+        self.column_datatype = ["float", "object"]
+        self.special_case = None
+        self.admin_detail = ["MONGO_HOST", "MONGO_DB"]
+
+
+class Prompt:
+    def __init__(self, sql_query):
+        self.data_setup_spec = None
+        self.schema_spec = None
+        self.story_setup = "But the user of my data thinks all data is stored in mysql."
+        self.sql_spec = None # TODO
+        self.sql_query = sql_query
+        self.query_spec = "With that assumption, they wrote the following query: " + self.sql_query
+        self.output_spec = "Generate a python code to execute this query on my original data. Query output should be written to the file <insert>.csv"
+        self.admin_spec = None
+
+    def to_dict(self):
+        member_variables = {attr: getattr(self, attr) for attr in dir(self) if not callable(getattr(self, attr)) and not attr.startswith("__")}
+        for k, v in member_variables.items():
+            print(f"* {k}: {v}")
+        return member_variables
+
+    def prompting(self, db_objs):
+        temp = "I have a "
+        for i in range(len(db_objs)):
+            temp += f"{db_objs[i].type} table named {db_objs[i].name}"
+            if i < len(db_objs)-1:
+                temp += " and "
+        print(temp)
+        self.data_setup_spec = temp
+        
+        temp = ""
+        for i in range(len(db_objs)):
+            temp += f"{db_objs[i].name} has the columns "
+            for j in range(len(db_objs[i].columns)):
+                temp += f"{db_objs[i].columns[j]} of type {db_objs[i].column_datatype[j]}"
+        self.schema_spec = temp
+        
+        temp = ""
+        for i in range(len(db_objs)):
+            temp += f"Details of my databases '{db_objs[i].name}' are as follows "
+            for admin_d in db_objs[i].admin_detail:
+                temp += admin_d + ", "
+            if i < len(db_objs)-1:
+                temp += " and "
+        self.admin_spec = temp
         
 class Multi_Message_ChatGPTQuery:
-    def __init__(self, mt):
+    def __init__(self):
         self.messages = list()
         self.input_message_len = list()
-        self.max_output_token_len = mt
         self.data = ""
         self.runtime = -1
         self.output_text = ""
@@ -126,11 +120,9 @@ class Multi_Message_ChatGPTQuery:
         for msg in self.messages:
             self.input_message_len.append(len(msg))
     
-    def add_context(self, role, new_msg):
-        def create_open_ai_msg(r, ms):
-            return {"role": r, "content": ms}
-        open_ai_msg = create_open_ai_msg(role, new_msg)
-        self.messages.append(open_ai_msg)
+    def add_context(self, new_msg, role="user"):
+        formatted_msg ={"role": role, "content": new_msg}
+        self.messages.append(formatted_msg)
 
     def chat_with_gpt(self):
         ###################################################
@@ -138,7 +130,7 @@ class Multi_Message_ChatGPTQuery:
             model=self.gpt_model,
             messages=self.messages,
             temperature=1,
-            max_tokens=self.max_output_token_len,
+            max_tokens=MAX_TOKEN,
             top_p=1,
             frequency_penalty=0,
             presence_penalty=0
@@ -148,7 +140,8 @@ class Multi_Message_ChatGPTQuery:
         # self.response = gpt_response.choices[0].text.strip()
         reason = gpt_response['choices'][0]['finish_reason']
         if reason != "stop":
-            print("GPT failed, finished_reason: {}")
+            print("ERROR: GPT failed, finished_reason: {}")
+            print("return None...")
             return None
         self.finished_reason = reason
         self.response = gpt_response['choices'][0]['message']['content']
@@ -168,7 +161,7 @@ class Multi_Message_ChatGPTQuery:
         for i in range(len(self.messages)):
             temp.append(f"message_{i},{self.messages[i]},{self.input_message_len[i]}")
         temp.append(f"input_message_len,{self.input_message_len}")
-        temp.append(f"max_output_token_len, {self.max_output_token_len}")
+        temp.append(f"MAX_TOKEN, {MAX_TOKEN}")
         temp.append(f"data, {self.data}")
         temp.append(f"runtime, {self.runtime}")
         temp.append(f"output_text, {self.output_text}")
@@ -179,52 +172,58 @@ class Multi_Message_ChatGPTQuery:
         temp.append(f"completion_tokens, {self.completion_tokens}")
         temp.append(f"prompt_tokens, {self.prompt_tokens}")
         temp.append(f"total_tokens, {self.total_tokens}")
-        path_ = util.get_current_time() + "-" + self.input_params["prompt"][:8] + ".txt"  # Replace with the path to your file
+        path_ = util.get_current_time() + "-gpt_output.txt"  # Replace with the path to your file
         with open(path_, "w") as file:
             for elem in temp:
                 file.write(elem + "\n")
     
     
 class GPT:
-    def __init__(self, api_k, max_t):
+    def __init__(self):
         self.num_query = 0
-        self.api_key = api_k # ChatGPT api key
-        self.max_token = max_t     
-        # Define the API endpoint
-        self.api_endpoint = 'https://api.openai.com/v1/engines/davinci-codex/completions'
+        # self.api_endpoint = 'https://api.openai.com/v1/engines/davinci-codex/completions'
     
-    def send_request(self, cq, list_of_msg):
+    def send_request(self, cq):
         '''
         reference: https://platform.openai.com/docs/guides/gpt/chat-completions-api
         The system message helps set the behavior of the assistant. For example, you can modify the personality of the assistant or provide specific instructions about how it should behave throughout the conversation. However note that the system message is optional and the model’s behavior without a system message is likely to be similar to using a generic message such as "You are a helpful assistant."
         '''
-        for msg in list_of_msg:
-            cq.add_context(msg)
         cq.set_input_message_len()
         result = cq.chat_with_gpt()
         print(result)
         ts = time.time()
-        response = requests.post(self.api_endpoint, json=cq.params, headers=cq.headers)
+        # response = requests.post(self.api_endpoint, json=cq.params, headers=cq.headers)
+        # cq.data = response.json() # data is python dictionary. resopnse is json.
         assert cq.runtime == -1
         cq.runtime = (time.time() - ts)
         self.num_query += 1
-        cq.data = response.json() # data is python dictionary. resopnse is json.
         cq.write_result()
         return cq.response
     
         
-    def call_chatgpt_api(self, sql_query):
-        params = {
-            'prompt': f"Translate the following SQL query to MongoDB: '{sql_query}'",
-            'max_tokens': self.max_token  # The max length of the generated text
-        }
-        # Set up headers with your API key
-        headers = {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json'
-        }
-        # cq = Single_Message_ChatGPTQuery(params, headers)
-        cq = Multi_Message_ChatGPTQuery(params, headers)
+    def call_chatgpt_api(self, query, schema):
+        # q1 = f"Translate the following SQL query to MongoDB in python api: '{query}'"
+        # q2 = f"This is schema of SQL table, '{schema}'"
+        # q3 = f"Give me just one python code"
+
+        cq = Multi_Message_ChatGPTQuery()
+        cq.add_context(q1)
+        cq.add_context(q2)
+        cq.add_context(q3)
         gpt_output = self.send_request(cq)
-        mongodb_code = gpt_output['choices'][0]['text']
-        print(mongodb_code)
+        # mongodb_code = gpt_output['choices'][0]['text']
+        print("********************")
+        print("** chatgpt output **")
+        print("********************")
+        print(gpt_output)
+    
+        
+def argparse_add_argument(parser):
+    # parser.add_argument("--query", type=str, default=None, help="sql query that will be used for chatgpt", required=True)
+    return 
+
+if __name__ == "__main__":
+    query = "SELECT CustomerName, City FROM Customers;"
+    schema = "Customer SQL database has columns of CustomerName, City, and Address"
+    gpt = GPT()
+    gpt.call_chatgpt_api(query, schema)
