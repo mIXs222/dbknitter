@@ -27,25 +27,69 @@ Example Prompt:
 '''
 ###################################################################################
 
+class SQL_COLUMN:
+    def __init__(self, column_name, datatype, null_property="NO_NULL"):
+        self.name = column_name
+        self.datatype = datatype
+        self.null_property = null_property
+
+# SQL schema of a table consists of
+# 1. Primary key of the table
+# 2. Columns: Each column has a name, type of data it hold, and propoerties like 'can it be NULL?' 
 class SQL_SCHEMA:
-    def __init__(self, primary_key_name):
-        self.primary_key_name = primary_key_name
-        self.columns          = {}                # column_name:[type, null_property, ...]
+    def __init__(self):
+        self.primary_key_name = None
+        self.columns          = {}                # column_name:SQL_COLUMN including primary key
+        self.no_columns       = len(self.columns)
 
-class SQL_TABLE:
-    def __init__(self, table_name, primary_key_name):
-        self.name = table_name
-        self.schema = SQL_SCHEMA(primary_key_name)   
-
-    def define_schema_from_file(self, filename):
-        ## populate self.schema
-        if filename == "" :
-            print("SQL Table {}: No Schema filename given".format(self.name))
-        else:
-            print("TODO code")  # TODO
+    def add_column(self, Column): # input: SQL_COLUMN object
+        self.columns[Column.name] = Column
+        self.no_columns       = len(self.columns)
 
     def print_schema(self):
-        pass
+        print("Primary Key is: ", self.primary_key_name)
+        print ("Number of columns: ", self.no_columns)
+        print("Schema: (Column_Name   Type   Null_property)")
+        for _, col in self.columns.items():
+            print(f" {col.name}  {col.datatype}  {col.null_property}")
+        print("******************************************")
+
+
+class SQL_TABLE:
+    def __init__(self, table_name, schema_filepath=""):
+        self.name = table_name
+        self.schema = SQL_SCHEMA()  
+        self.define_schema_from_file(schema_filepath) 
+
+    # self.schema is populate from a schema file of the format:
+    # COLUMN_NAME1 type NULL
+    # COLUMN_NAME2 type NO_NULL ....  
+    def define_schema_from_file(self, filepath):
+        ## populate self.schema
+        if filepath == "" :
+            print("SQL Table {}: No Schema filename given".format(self.name))
+            return 0
+        
+        file1 = open(filepath, 'r')
+        lines = file1.readlines()
+        line_no = 0
+        
+        for line in lines:
+            line_no += 1
+            col_spec = line.strip().split()   # Column_name Cloumn_type null_or_nonull
+            if line_no == 1: # primary key
+                self.schema.primary_key_name = col_spec[0]
+            column = SQL_COLUMN(col_spec[0], col_spec[1], col_spec[2])
+            self.schema.add_column(column)
+        
+        self.print_table()
+        return 0
+
+
+    def print_table(self):
+        print("Table name is: ", self.name)
+        self.schema.print_schema()
+        
 
 
 ####################################################################################
@@ -57,12 +101,15 @@ class SQL_TABLE:
 # TODO: May need a separate platform specific schema file too
 
 class Table:
-    def __init__(self, platform, table_name, primary_key_name, admin_file="", schema_file=""):
+    def __init__(self, table_name, platform, admin_file="", schema_file=""):
         self.platform       = platform                                        # mysql, mongodb etc
         self.name           = table_name  
-        self.admin_details  = {}                                              # eg: "Database name" : db_name, "Database password" : sql_pwd etc
-        self.equivalent_sql_table = SQL_TABLE(table_name, primary_key_name)   # A table, no matter which platform, should have an SQL table equivalent,
-                                                                              # which is how it is presented to the buisness analyst (the user). 
+        self.admin_details  = {}                                              # Keys must be strings describing what the values are and
+                                                                              # -- the variable names for those you want in the code,
+                                                                              # -- This will be used to tell chatgpt about admin details
+                                                                              # -- eg: "name" : db_name, "password" : sql_pwd etc
+        self.equivalent_sql_table = SQL_TABLE(table_name, schema_file)                    # A table, no matter which platform, should have an SQL table equivalent,
+                                                                              # -- which is how it is presented to the buisness analyst (the user). 
         
         self.special_case = None                                              # any special rules like how to handle nulls etc
 
@@ -74,15 +121,31 @@ class Table:
             sys.exit("Invalid platform name. Should be: mysql, mongodb")
 
         self.define_admin_from_file(admin_file)
-        self.equivalent_sql_table.define_schema_from_file(schema_file)
 
 
-    def define_admin_from_file(self, filename):
+    def define_admin_from_file(self, filepath):
         ## populate self.admin_details
-        if filename == "" :
+        if filepath == "" :
             print("Table {}: No admin filename given".format(self.name))
-        else:
-            print("TODO code")  # TODO
+            return 0
+        print(f"Updating admin info for table {self.name} from {filepath} :")
+        file1 = open(filepath, 'r')
+        lines = file1.readlines()
+        
+        for line in lines:
+            spec = line.split(":")   # "spec description" : "spec value"
+            self.admin_details[spec[0].strip()] = spec[1].strip()
+            
+        print("Admin info update complete!")
+        self.print_admin_info()
+        print("---------------------------------------")
+        return 0
+    
+    def print_admin_info(self):
+        print(f"Table {self.name} admin info :")
+        for k, v in self.admin_details.items():
+            print(f"  {k} : {v}")
+            
 
 
 ##################################################################################################
@@ -92,8 +155,49 @@ class Table:
 class Datalake:
     def __init__(self, name):
         self.name = name
-        self.tables = {}
+        self.tables = {}        # table_name : Table
+        self.no_tables  = len(self.tables)
 
+    def add_table(self, table): # table is a Table object
+        self.tables[table.name] = table
+        self.no_tables  = len(self.tables)
+
+    # Folder should contain one folder per table in the datalake
+    # Each table folder should contain: platform.txt, schema.txt, admin.txt
+    def define_datalake_from_folder(self, folder_path):
+        table_folders = [f.path for f in os.scandir(folder_path) if f.is_dir()]
+        for tab in table_folders:
+            table_name = tab.split('/')[-1]
+            platform_file = tab+'/platform.txt'
+            admin_file    = tab+'/admin.txt'
+            schema_file   = tab+'/schema.txt'
+            with open(platform_file) as f:
+                platform = f.readline()
+            self.add_table(Table(table_name, platform, admin_file, schema_file))
+            print("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*")
+        print("Table definitions complete! \n\n")
+            
+###################################################################################################
+
+## Either reurns ", " or " and " or "." depending on which element you are
+## appending to a sentence
+## eg: "table1, table2 and table3.""
+def add_delimiter(i, L):
+    if i < (L-1):
+        return f", "
+    elif i == (L-1):
+        return f" and "
+    else:
+        return f". "
+
+## query can be passed as a string or as a filepath (with isfile=True)
+def get_query(query, isfile=False):
+    if isfile:
+        with open(query, 'r') as file:
+            q = file.read()
+        return q
+    else:
+        return query
 
 
 # Prompt for a given Datalake setup
@@ -101,16 +205,95 @@ class Prompt:
     def __init__(self, datalake, output_file="query_output.csv"):
         self.datalake      = datalake
         self.output_file   = output_file
-        self.datalake_info = "I have organized my data as follows: "   ## <table1> in <db1>, ....
-        self.schema_info   = ""                                        ## "<table1> has <columns/fields etc> <cloumn_name>, of type <type>, and can be <special_cases>"
-        self.admin_spec    = "Details of my databases are as follows : "
-        self.story         = "But the user of my data thinks all the data is stored in mysql."
-        self.sql_schema    = "They think the tables have the following schemas : "
-        self.query         = "With that assumption, they wrote the following query: "
-        self.output_spec   = "Generate a python code to execute this query on my original data. Query output should be written to the file {}".format(self.output_file)
 
-#####************************ STOPPED HERE **********************##############
+        # prefaces
+        self.datalake_info_pref = "I have organized my data as follows: "   ## <table1> in <db1>, ....
+        self.schema_info_pref   = ""                                        ## "<table1> has <columns/fields etc> <cloumn_name>, of type <type>, and can be <special_cases>"
+        self.admin_info_pref    = "Details of my databases are as follows : "
+        self.story         = "But the user of my data thinks all the data is stored in mysql with the same column names."  # TODO: "with same column names"?
+        # self.sql_schema_pref    = "They think the tables have the following schemas : "       # TODO: Is this  required
+        self.query_pref         = "With that assumption, they wrote the following query: "
+        self.output_spec   = f"Generate a python code to execute this query on my original data. Query's output should be written to the file {self.output_file}. Please output only the python code and a bash command to installtion all dependencies to run that python code."
 
+        self.datalake_info = ""
+        self.schema_info   = ""
+        self.admin_info    = ""
+
+    def to_dict(self):
+        member_variables = {attr: getattr(self, attr) for attr in dir(self) if not callable(getattr(self, attr)) and not attr.startswith("__")}
+        for k, v in member_variables.items():
+            print(f"* {k}: {v}")
+        return member_variables
+    
+    def gen_datalake_info(self):
+        ## <table1> in <db1>, ....
+        temp = ""
+
+        for index, table_n in enumerate(self.datalake.tables):
+            tab = self.datalake.tables[table_n]
+            temp += f"table {table_n} in {tab.platform}"
+            temp += f"{add_delimiter(index+1, self.datalake.no_tables)}"
+
+        self.datalake_info = self.datalake_info_pref + temp
+        return self.datalake_info
+    
+    def gen_schema_info(self):
+        ## "<table1> has <columns/fields etc> <cloumn_name>, of type <type>, and can be <special_cases>"
+        temp = ""
+        for _, table_n in enumerate(self.datalake.tables):
+            tab = self.datalake.tables[table_n]                  # Table object 
+            temp += f"Table {table_n} has the following {tab.column_equivalent}: "
+
+            for i, col_name in enumerate(tab.equivalent_sql_table.schema.columns):
+                col = tab.equivalent_sql_table.schema.columns[col_name]   # SQL_COLUMN object
+                temp += f"{col_name} of type {col.datatype}"
+                temp += f"{add_delimiter(i+1, tab.equivalent_sql_table.schema.no_columns)}"
+
+        self.schema_info = self.schema_info_pref + temp
+        return self.schema_info
+    
+    def gen_admin_info(self):
+        ## "for <table1> the <hostname> is <insert>, the <password> is <inser> "
+        temp = ""
+        for _, table_n in enumerate(self.datalake.tables):
+            tab = self.datalake.tables[table_n]                  # Table object 
+            temp += f" For table {table_n} "
+
+            L = len(tab.admin_details)
+            for i, spec_name in enumerate(tab.admin_details):
+                temp += f"the {spec_name} is {tab.admin_details[spec_name]}"
+                temp += f"{add_delimiter(i+1, L)}"
+
+        self.admin_info = self.admin_info_pref + temp
+        return self.admin_info
+    
+    
+    def gen_full_prompt(self, query, isfile=False):
+        q = get_query(query, isfile)
+        self.gen_datalake_info()
+        self.gen_schema_info()
+        self.gen_admin_info()
+
+        prompt = ""
+        prompt +=  self.datalake_info + '\n' + self.schema_info + "\n" + self.admin_info + " \n" + self.story + "\n" + self.query_pref + q + "\n" + self.output_spec
+        
+        print("The final prompt is: \n\n")
+        print(prompt)
+
+################
+
+if __name__ == "__main__":
+    
+    datalake = Datalake("myData")
+    datalake.define_datalake_from_folder("/home/chitty/Desktop/cs598dk/dbknitter/dbknitter/config")
+
+    prompt = Prompt(datalake)
+    prompt.gen_full_prompt("A_QUERY")
+
+
+
+
+""" 
 
 class Prompt1:
     def __init__(self, sql_query):
@@ -277,8 +460,12 @@ def argparse_add_argument(parser):
     # parser.add_argument("--query", type=str, default=None, help="sql query that will be used for chatgpt", required=True)
     return 
 
+
+
 if __name__ == "__main__":
     query = "SELECT CustomerName, City FROM Customers;"
     schema = "Customer SQL database has columns of CustomerName, City, and Address"
     gpt = GPT()
     gpt.call_chatgpt_api(query, schema)
+ """
+
