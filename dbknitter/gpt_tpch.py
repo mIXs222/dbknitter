@@ -12,6 +12,40 @@ os.environ['OPENAI_API_KEY'] = "sk-gHm2D1VlXralAExWw80ET3BlbkFJguFUJFJDzjFfuGJwy
 openai.api_key = os.getenv("OPENAI_API_KEY")
 MAX_TOKEN=2000
 
+class Utility:
+    def __init__(self):
+        pass
+    
+    def get_current_time(self):
+        current_datetime = datetime.datetime.now()
+        formatted_datetime = current_datetime.strftime("%Y%m%d_%H:%M:%S")
+        return formatted_datetime
+util = Utility()
+
+##############################################################################################
+# Information about all tables must be stored in a single 'config' folder (see examples)
+# That folder must have one folder per table with folder name same as the table name
+# Each table folder must have three files:
+# 1. platform.txt: One line containing the platform table is on (mysql, mongodb)
+# 2. admin.txt: Has all necessary info to establish connection to the data platform
+#               One spec per line as  "word_description : value" eg: "database name : db1"
+# Note: It is important for admin.txt to be exhaustive, else chatGPT may introduce its own
+#       variable names, which can't be progrmatically identified and the python code given
+#       by it will fail to execute
+# 3. schema.txt: Schema of the equivalent SQL table. Each line is a column information in
+#                "COLUMN_NAME  type  NULL" format
+#    # TODO: How to specify non-SQL structures like lists etc?
+#    # TODO: Support for simple files, like json etc
+#    # TODO: Add table name to schema as well, else have to see both admin and schema to contruct queries
+#
+# Once these are defined, feed it into this program by calling the 
+# Datalake.define_datalake_from_folder(...) function.
+#
+# Then to create prompt based on that config, use the Prompt.get_full_query(...)
+# Queries can be fed in through files ('query/query1.txt here). And outputs can saved
+# in files ('query_output.query1.txt' here) 
+##############################################################################################
+
 
 
 ''' 
@@ -118,7 +152,7 @@ class Table:
         elif self.platform == "mongodb":
             self.column_equivalent = "fields"     
         else:
-            sys.exit("Invalid platform name. Should be: mysql, mongodb")
+            sys.exit("Invalid platform name. Should be: mysql, mongodb")      # TODO: move this kind of information to platform.txt
 
         self.define_admin_from_file(admin_file)
 
@@ -179,6 +213,7 @@ class Datalake:
             
 ###################################################################################################
 
+####################################### UTILS ####################################################
 ## Either reurns ", " or " and " or "." depending on which element you are
 ## appending to a sentence
 ## eg: "table1, table2 and table3.""
@@ -199,7 +234,7 @@ def get_query(query, isfile=False):
     else:
         return query
 
-
+#############################################################################
 # Prompt for a given Datalake setup
 class Prompt:
     def __init__(self, datalake, output_file="query_output.csv"):
@@ -279,64 +314,10 @@ class Prompt:
         
         print("The final prompt is: \n\n")
         print(prompt)
+        return prompt
 
-################
+#####################################################################################################
 
-if __name__ == "__main__":
-    
-    datalake = Datalake("myData")
-    datalake.define_datalake_from_folder("/home/chitty/Desktop/cs598dk/dbknitter/dbknitter/config")
-
-    prompt = Prompt(datalake)
-    prompt.gen_full_prompt("A_QUERY")
-
-
-
-
-""" 
-
-class Prompt1:
-    def __init__(self, sql_query):
-        self.data_setup_spec = None
-        self.schema_spec = None
-        self.story_setup = "But the user of my data thinks all data is stored in mysql."
-        self.sql_spec = None # TODO
-        self.sql_query = sql_query
-        self.query_spec = "With that assumption, they wrote the following query: " + self.sql_query
-        self.output_spec = "Generate a python code to execute this query on my original data. Query output should be written to the file <insert>.csv"
-        self.admin_spec = None
-
-    def to_dict(self):
-        member_variables = {attr: getattr(self, attr) for attr in dir(self) if not callable(getattr(self, attr)) and not attr.startswith("__")}
-        for k, v in member_variables.items():
-            print(f"* {k}: {v}")
-        return member_variables
-
-    def prompting(self, db_objs):
-        temp = "I have a "
-        for i in range(len(db_objs)):
-            temp += f"{db_objs[i].type} table named {db_objs[i].name}"
-            if i < len(db_objs)-1:
-                temp += " and "
-        print(temp)
-        self.data_setup_spec = temp
-        
-        temp = ""
-        for i in range(len(db_objs)):
-            temp += f"{db_objs[i].name} has the columns "
-            for j in range(len(db_objs[i].columns)):
-                temp += f"{db_objs[i].columns[j]} of type {db_objs[i].column_datatype[j]}"
-        self.schema_spec = temp
-        
-        temp = ""
-        for i in range(len(db_objs)):
-            temp += f"Details of my databases '{db_objs[i].name}' are as follows "
-            for admin_d in db_objs[i].admin_detail:
-                temp += admin_d + ", "
-            if i < len(db_objs)-1:
-                temp += " and "
-        self.admin_spec = temp
-        
 class Multi_Message_ChatGPTQuery:
     def __init__(self):
         self.messages = list()
@@ -392,7 +373,7 @@ class Multi_Message_ChatGPTQuery:
         print(f"extracted response: {self.response}")
         return self.response
         
-    def write_result(self):
+    def write_result(self, output_filepath):
         temp = list()
         assert len(self.messages) == len(self.input_message_len)
         temp.append(f"uid, {self.uid}")
@@ -410,7 +391,8 @@ class Multi_Message_ChatGPTQuery:
         temp.append(f"completion_tokens, {self.completion_tokens}")
         temp.append(f"prompt_tokens, {self.prompt_tokens}")
         temp.append(f"total_tokens, {self.total_tokens}")
-        path_ = util.get_current_time() + "-gpt_output.txt"  # Replace with the path to your file
+        #path_ = util.get_current_time() + "-gpt_output.txt"  # Replace with the path to your file
+        path_ = output_filepath
         with open(path_, "w") as file:
             for elem in temp:
                 file.write(elem + "\n")
@@ -421,51 +403,69 @@ class GPT:
         self.num_query = 0
         # self.api_endpoint = 'https://api.openai.com/v1/engines/davinci-codex/completions'
     
-    def send_request(self, cq):
+    def send_request(self, cq, output_filepath):
         '''
         reference: https://platform.openai.com/docs/guides/gpt/chat-completions-api
         The system message helps set the behavior of the assistant. For example, you can modify the personality of the assistant or provide specific instructions about how it should behave throughout the conversation. However note that the system message is optional and the model’s behavior without a system message is likely to be similar to using a generic message such as "You are a helpful assistant."
         '''
         cq.set_input_message_len()
         result = cq.chat_with_gpt()
-        print(result)
+        #print(result)
         ts = time.time()
         # response = requests.post(self.api_endpoint, json=cq.params, headers=cq.headers)
         # cq.data = response.json() # data is python dictionary. resopnse is json.
         assert cq.runtime == -1
         cq.runtime = (time.time() - ts)
         self.num_query += 1
-        cq.write_result()
+        cq.write_result(output_filepath)
         return cq.response
     
         
-    def call_chatgpt_api(self, query, schema):
-        q1 = f"Translate the following SQL query to MongoDB in python api: '{query}'"
-        q2 = f"This is schema of SQL table, '{schema}'"
-        q3 = f"Give me just one python code"
-
-        cq = Multi_Message_ChatGPTQuery()
-        cq.add_context(q1)
-        cq.add_context(q2)
-        cq.add_context(q3)
-        gpt_output = self.send_request(cq)
-        # mongodb_code = gpt_output['choices'][0]['text']
-        print("********************")
-        print("** chatgpt output **")
-        print("********************")
-        print(gpt_output)
-    
+    def call_chatgpt_api(self, query_prompt, output_filepath):
         
-def argparse_add_argument(parser):
-    # parser.add_argument("--query", type=str, default=None, help="sql query that will be used for chatgpt", required=True)
-    return 
-
-
-
+        cq = Multi_Message_ChatGPTQuery()
+        cq.add_context(query_prompt)
+        # cq.add_context(..) # can add more queries
+        gpt_output = self.send_request(cq, output_filepath)
+        # mongodb_code = gpt_output['choices'][0]['text']
+        #print("********************")
+        #print("** chatgpt output **")
+        #print("********************")
+        #print(gpt_output)
+    
+###****************************************************************************************************
 if __name__ == "__main__":
-    query = "SELECT CustomerName, City FROM Customers;"
-    schema = "Customer SQL database has columns of CustomerName, City, and Address"
+
+    ################# SETTINGS #############################
+    ## I think full paths need to be given # TODO: Fix this 
+    CONFIG_FOLDER = "/home/chitty/Desktop/cs598dk/dbknitter/dbknitter/config"
+    QUERY_FOLDER    = "/home/chitty/Desktop/cs598dk/dbknitter/dbknitter/query"
+    OUTPUT_FOLDER   = "/home/chitty/Desktop/cs598dk/dbknitter/dbknitter/query_output"
+    #########################################################
+    
+    ## Feed in Datalake information (we name it "myData here")
+    datalake = Datalake("myData")
+    datalake.define_datalake_from_folder(CONFIG_FOLDER)
+
+    ## Create prompt generation object
+    prompt = Prompt(datalake)
     gpt = GPT()
-    gpt.call_chatgpt_api(query, schema)
- """
+    
+
+    query_files=[f for f in os.listdir(QUERY_FOLDER) if os.path.isfile(QUERY_FOLDER+'/'+f)]
+
+    for qfile in query_files:
+        query_prompt =prompt.gen_full_prompt(QUERY_FOLDER+'/'+qfile, True)  # To get the query from a file
+        #query_prompt = prompt.gen_full_prompt("A_QUERY")      # to just pass query as string
+        print("\n\n")
+        output_file = OUTPUT_FOLDER+'/'+qfile
+        gpt.call_chatgpt_api(query_prompt, output_file)
+
+    # TODO: Fit many queries within same context
+    
+
+
+    
+    
+    
 
