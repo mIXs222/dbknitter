@@ -45,7 +45,7 @@ def compare_csv(actual_output_path: Path, expected_output_path: Path) -> Score:
         return Score.fail_parsing_output
 
     # Read expected output.
-    expected_df = pd.read_csv(actual_output_path)
+    expected_df = pd.read_csv(expected_output_path)
 
     # Compare outputs and return result.
     # TODO: Compare with invariants.
