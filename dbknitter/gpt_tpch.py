@@ -5,6 +5,10 @@ import openai
 import os
 import argparse
 import sys
+from itertools import islice, product
+
+from dbknitter.tpch_queries import tpch_queries
+
 
 os.environ['OPENAI_API_KEY'] = "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"
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -78,6 +82,10 @@ class SQL_SCHEMA:
         self.columns[Column.name] = Column
         self.no_columns       = len(self.columns)
 
+    def emplace(self, column_name, datatype, null_property):
+        self.columns[column_name] = SQL_COLUMN(column_name, datatype, null_property)
+        self.no_columns = len(self.columns)
+
     def print_schema(self):
         print("Primary Key is: ", self.primary_key_name)
         print ("Number of columns: ", self.no_columns)
@@ -88,40 +96,242 @@ class SQL_SCHEMA:
 
 
 class SQL_TABLE:
-    def __init__(self, table_name, schema_filepath=""):
+    def __init__(self, table_name, schema):
         self.name = table_name
-        self.schema = SQL_SCHEMA()  
-        self.define_schema_from_file(schema_filepath) 
+        self.schema = schema
 
     # self.schema is populate from a schema file of the format:
     # COLUMN_NAME1 type NULL
     # COLUMN_NAME2 type NO_NULL ....  
-    def define_schema_from_file(self, filepath):
+    @staticmethod
+    def define_schema_from_file(self, table_name, filepath):
         ## populate self.schema
         if filepath == "" :
-            print("SQL Table {}: No Schema filename given".format(self.name))
-            return 0
+            raise ValueError("SQL Table {}: No Schema filename given".format(self.name))
+
         
         file1 = open(filepath, 'r')
         lines = file1.readlines()
         line_no = 0
         
+        schema = SQL_SCHEMA()
         for line in lines:
             line_no += 1
             col_spec = line.strip().split()   # Column_name Cloumn_type null_or_nonull
             if line_no == 1: # primary key
-                self.schema.primary_key_name = col_spec[0]
+                schema.primary_key_name = col_spec[0]
             column = SQL_COLUMN(col_spec[0], col_spec[1], col_spec[2])
-            self.schema.add_column(column)
+            schema.add_column(column)
         
-        self.print_table()
-        return 0
+        table = SQL_TABLE(table_name, schema)
+        table.print_table()
+        return table
 
 
     def print_table(self):
         print("Table name is: ", self.name)
         self.schema.print_schema()
-        
+
+
+# TPC-H Datalake Setup for benchmarking
+class TPCHSetup:
+    @staticmethod
+    def iter_all_mappings():
+        all_tpch_tables = ["nation", "region", "part", "supplier", "partsupp", "customer", "orders", "lineitem"] 
+        for platform_idxs in product([0, 1], repeat=len(all_tpch_tables)):
+            table_lists = [[] for _ in range(len(all_tpch_tables))]
+            for table_idx, platform_idx in enumerate(platform_idxs):
+                table_lists[platform_idx].append(all_tpch_tables[table_idx])
+            yield "".join(map(str, platform_idxs)), table_lists[0], table_lists[1]
+
+    @staticmethod
+    def iter_all_queries():
+        for qidx in range(1, 22 + 1):
+            yield qidx, tpch_queries[qidx]
+
+    @staticmethod
+    def mysql_admin():  # from platforms/mysql/tpch_init.sh AND cloudlab/docker-compose.yml
+        return {
+            "database name": "tpch",
+            "username": "root",
+            "password": "my-secret-pw",
+            "hostname": "mysql",
+        }
+
+    @staticmethod
+    def mysql_table(table: str):  # table name in lowercase, default TPC-H spelling.
+        schema = SQL_SCHEMA()
+        if table == "nation":
+            schema.emplace("N_NATIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("N_NAME", "CHAR(25)", "NO_NULL")
+            schema.emplace("N_REGIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("N_COMMENT", "VARCHAR(152)", "NULL")
+            return SQL_TABLE("NATION", schema)
+        elif table == "region":
+            schema.emplace("R_REGIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("R_NAME", "CHAR(25)", "NO_NULL")
+            schema.emplace("R_COMMENT", "VARCHAR(152)", "NULL")
+            return SQL_TABLE("REGION", schema)
+        elif table == "part":
+            schema.emplace("P_PARTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("P_NAME", "VARCHAR(55)", "NO_NULL")
+            schema.emplace("P_MFGR", "CHAR(25)", "NO_NULL")
+            schema.emplace("P_BRAND", "CHAR(10)", "NO_NULL")
+            schema.emplace("P_TYPE", "VARCHAR(25)", "NO_NULL")
+            schema.emplace("P_SIZE", "INTEGER", "NO_NULL")
+            schema.emplace("P_CONTAINER", "CHAR(10)", "NO_NULL")
+            schema.emplace("P_RETAILPRICE", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("P_COMMENT", "VARCHAR(23)", "NO_NULL")
+            return SQL_TABLE("PART", schema)
+        elif table == "supplier":
+            schema.emplace("S_SUPPKEY", "INTEGER", "NO_NULL")
+            schema.emplace("S_NAME", "CHAR(25)", "NO_NULL")
+            schema.emplace("S_ADDRESS", "VARCHAR(40)", "NO_NULL")
+            schema.emplace("S_NATIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("S_PHONE", "CHAR(15)", "NO_NULL")
+            schema.emplace("S_ACCTBAL", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("S_COMMENT", "VARCHAR(101)", "NO_NULL")
+            return SQL_TABLE("SUPPLIER", schema)
+        elif table == "partsupp":
+            schema.emplace("PS_PARTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("PS_SUPPKEY", "INTEGER", "NO_NULL")
+            schema.emplace("PS_AVAILQTY", "INTEGER", "NO_NULL")
+            schema.emplace("PS_SUPPLYCOST", "DECIMAL(15,2) ", "NO_NULL")
+            schema.emplace("PS_COMMENT", "VARCHAR(199)", "NO_NULL" )
+            return SQL_TABLE("PARTSUPP", schema)
+        elif table == "customer":
+            schema.emplace("C_CUSTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("C_NAME", "VARCHAR(25)", "NO_NULL")
+            schema.emplace("C_ADDRESS", "VARCHAR(40)", "NO_NULL")
+            schema.emplace("C_NATIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("C_PHONE", "CHAR(15)", "NO_NULL")
+            schema.emplace("C_ACCTBAL", "DECIMAL(15,2)  ", "NO_NULL")
+            schema.emplace("C_MKTSEGMENT", "CHAR(10)", "NO_NULL")
+            schema.emplace("C_COMMENT", "VARCHAR(117)", "NO_NULL")
+            return SQL_TABLE("CUSTOMER", schema)
+        elif table == "orders":
+            schema.emplace("O_ORDERKEY", "INTEGER", "NO_NULL")
+            schema.emplace("O_CUSTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("O_ORDERSTATUS", "CHAR(1)", "NO_NULL")
+            schema.emplace("O_TOTALPRICE", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("O_ORDERDATE", "DATE", "NO_NULL")
+            schema.emplace("O_ORDERPRIORITY", "CHAR(15)", "NO_NULL", )
+            schema.emplace("O_CLERK", "CHAR(15)", "NO_NULL",)
+            schema.emplace("O_SHIPPRIORITY", "INTEGER", "NO_NULL")
+            schema.emplace("O_COMMENT", "VARCHAR(79)", "NO_NULL")
+            return SQL_TABLE("ORDERS", schema)
+        elif table == "lineitem":
+            schema.emplace("L_ORDERKEY", "INTEGER", "NO_NULL")
+            schema.emplace("L_PARTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("L_SUPPKEY", "INTEGER", "NO_NULL")
+            schema.emplace("L_LINENUMBER", "INTEGER", "NO_NULL")
+            schema.emplace("L_QUANTITY", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_EXTENDEDPRICE", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_DISCOUNT", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_TAX", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_RETURNFLAG", "CHAR(1)", "NO_NULL")
+            schema.emplace("L_LINESTATUS", "CHAR(1)", "NO_NULL")
+            schema.emplace("L_SHIPDATE", "DATE", "NO_NULL")
+            schema.emplace("L_COMMITDATE", "DATE", "NO_NULL")
+            schema.emplace("L_RECEIPTDATE", "DATE", "NO_NULL")
+            schema.emplace("L_SHIPINSTRUCT", "CHAR(25)", "NO_NULL")
+            schema.emplace("L_SHIPMODE", "CHAR(10)", "NO_NULL")
+            schema.emplace("L_COMMENT", "VARCHAR(44)", "NO_NULL")
+            return SQL_TABLE("LINEITEM", schema)
+        else:
+            raise ValueError(f"Invalid mysql table name {table}")
+
+    @staticmethod
+    def mongodb_admin():  # from platforms/mongodb/tpch_init.sh AND cloudlab/docker-compose.yml
+        return {
+            "database name": "tpch",
+            "port": "27017",
+            "hostname": "mongodb",
+        }
+
+    @staticmethod
+    def mongodb_table(table: str):  # table name in lowercase, default TPC-H spelling.
+        schema = SQL_SCHEMA()
+        if table == "nation":
+            schema.emplace("N_NATIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("N_NAME", "CHAR(25)", "NO_NULL")
+            schema.emplace("N_REGIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("N_COMMENT", "VARCHAR(152)", "NULL")
+            return SQL_TABLE("nation", schema)
+        elif table == "region":
+            schema.emplace("R_REGIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("R_NAME", "CHAR(25)", "NO_NULL")
+            schema.emplace("R_COMMENT", "VARCHAR(152)", "NULL")
+            return SQL_TABLE("region", schema)
+        elif table == "part":
+            schema.emplace("P_PARTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("P_NAME", "VARCHAR(55)", "NO_NULL")
+            schema.emplace("P_MFGR", "CHAR(25)", "NO_NULL")
+            schema.emplace("P_BRAND", "CHAR(10)", "NO_NULL")
+            schema.emplace("P_TYPE", "VARCHAR(25)", "NO_NULL")
+            schema.emplace("P_SIZE", "INTEGER", "NO_NULL")
+            schema.emplace("P_CONTAINER", "CHAR(10)", "NO_NULL")
+            schema.emplace("P_RETAILPRICE", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("P_COMMENT", "VARCHAR(23)", "NO_NULL")
+            return SQL_TABLE("part", schema)
+        elif table == "supplier":
+            schema.emplace("S_SUPPKEY", "INTEGER", "NO_NULL")
+            schema.emplace("S_NAME", "CHAR(25)", "NO_NULL")
+            schema.emplace("S_ADDRESS", "VARCHAR(40)", "NO_NULL")
+            schema.emplace("S_NATIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("S_PHONE", "CHAR(15)", "NO_NULL")
+            schema.emplace("S_ACCTBAL", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("S_COMMENT", "VARCHAR(101)", "NO_NULL")
+            return SQL_TABLE("supplier", schema)
+        elif table == "partsupp":
+            schema.emplace("PS_PARTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("PS_SUPPKEY", "INTEGER", "NO_NULL")
+            schema.emplace("PS_AVAILQTY", "INTEGER", "NO_NULL")
+            schema.emplace("PS_SUPPLYCOST", "DECIMAL(15,2) ", "NO_NULL")
+            schema.emplace("PS_COMMENT", "VARCHAR(199)", "NO_NULL" )
+            return SQL_TABLE("partsupp", schema)
+        elif table == "customer":
+            schema.emplace("C_CUSTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("C_NAME", "VARCHAR(25)", "NO_NULL")
+            schema.emplace("C_ADDRESS", "VARCHAR(40)", "NO_NULL")
+            schema.emplace("C_NATIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("C_PHONE", "CHAR(15)", "NO_NULL")
+            schema.emplace("C_ACCTBAL", "DECIMAL(15,2)  ", "NO_NULL")
+            schema.emplace("C_MKTSEGMENT", "CHAR(10)", "NO_NULL")
+            schema.emplace("C_COMMENT", "VARCHAR(117)", "NO_NULL")
+            return SQL_TABLE("customer", schema)
+        elif table == "orders":
+            schema.emplace("O_ORDERKEY", "INTEGER", "NO_NULL")
+            schema.emplace("O_CUSTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("O_ORDERSTATUS", "CHAR(1)", "NO_NULL")
+            schema.emplace("O_TOTALPRICE", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("O_ORDERDATE", "DATE", "NO_NULL")
+            schema.emplace("O_ORDERPRIORITY", "CHAR(15)", "NO_NULL", )
+            schema.emplace("O_CLERK", "CHAR(15)", "NO_NULL",)
+            schema.emplace("O_SHIPPRIORITY", "INTEGER", "NO_NULL")
+            schema.emplace("O_COMMENT", "VARCHAR(79)", "NO_NULL")
+            return SQL_TABLE("orders", schema)
+        elif table == "lineitem":
+            schema.emplace("L_ORDERKEY", "INTEGER", "NO_NULL")
+            schema.emplace("L_PARTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("L_SUPPKEY", "INTEGER", "NO_NULL")
+            schema.emplace("L_LINENUMBER", "INTEGER", "NO_NULL")
+            schema.emplace("L_QUANTITY", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_EXTENDEDPRICE", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_DISCOUNT", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_TAX", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_RETURNFLAG", "CHAR(1)", "NO_NULL")
+            schema.emplace("L_LINESTATUS", "CHAR(1)", "NO_NULL")
+            schema.emplace("L_SHIPDATE", "DATE", "NO_NULL")
+            schema.emplace("L_COMMITDATE", "DATE", "NO_NULL")
+            schema.emplace("L_RECEIPTDATE", "DATE", "NO_NULL")
+            schema.emplace("L_SHIPINSTRUCT", "CHAR(25)", "NO_NULL")
+            schema.emplace("L_SHIPMODE", "CHAR(10)", "NO_NULL")
+            schema.emplace("L_COMMENT", "VARCHAR(44)", "NO_NULL")
+            return SQL_TABLE("lineitem", schema)
+        else:
+            raise ValueError(f"Invalid mongodb table name {table}")
+
 
 
 ####################################################################################
@@ -133,14 +343,14 @@ class SQL_TABLE:
 # TODO: May need a separate platform specific schema file too
 
 class Table:
-    def __init__(self, table_name, platform, admin_file="", schema_file=""):
+    def __init__(self, table_name, platform, admin_details, equivalent_sql_table):
         self.platform       = platform                                        # mysql, mongodb etc
         self.name           = table_name  
-        self.admin_details  = {}                                              # Keys must be strings describing what the values are and
+        self.admin_details  = admin_details                                   # Keys must be strings describing what the values are and
                                                                               # -- the variable names for those you want in the code,
                                                                               # -- This will be used to tell chatgpt about admin details
                                                                               # -- eg: "name" : db_name, "password" : sql_pwd etc
-        self.equivalent_sql_table = SQL_TABLE(table_name, schema_file)                    # A table, no matter which platform, should have an SQL table equivalent,
+        self.equivalent_sql_table = equivalent_sql_table                      # A table, no matter which platform, should have an SQL table equivalent,
                                                                               # -- which is how it is presented to the buisness analyst (the user). 
         
         self.special_case = None                                              # any special rules like how to handle nulls etc
@@ -152,26 +362,27 @@ class Table:
         else:
             sys.exit("Invalid platform name. Should be: mysql, mongodb")      # TODO: move this kind of information to platform.txt
 
-        self.define_admin_from_file(admin_file)
+    @staticmethod
+    def define_admin_from_file(self, table_name, platform, admin_file, schema_file):
+        ## populate equivalent_sql_table
+        equivalent_sql_table = SQL_TABLE(table_name, schema_file)
 
-
-    def define_admin_from_file(self, filepath):
-        ## populate self.admin_details
-        if filepath == "" :
-            print("Table {}: No admin filename given".format(self.name))
+        ## populate admin_details
+        if admin_file == "" :
+            print("Table {}: No admin filename given".format(table_name))
             return 0
-        print(f"Updating admin info for table {self.name} from {filepath} :")
-        file1 = open(filepath, 'r')
+        print(f"Updating admin info for table {table_name} from {admin_file} :")
+        file1 = open(admin_file, 'r')
         lines = file1.readlines()
         
         for line in lines:
             spec = line.split(":")   # "spec description" : "spec value"
-            self.admin_details[spec[0].strip()] = spec[1].strip()
+            admin_details[spec[0].strip()] = spec[1].strip()
             
         print("Admin info update complete!")
         self.print_admin_info()
         print("---------------------------------------")
-        return 0
+        return Table(table_name, platform, admin_details, equivalent_sql_table)
     
     def print_admin_info(self):
         print(f"Table {self.name} admin info :")
@@ -194,6 +405,23 @@ class Datalake:
         self.tables[table.name] = table
         self.no_tables  = len(self.tables)
 
+    @staticmethod
+    def from_tpch_mapping(
+        name,
+        mysql_admin,
+        mysql_tables,
+        mongodb_admin,
+        mongodb_tables,
+    ):
+        datalake = Datalake(name)
+        for table in mysql_tables:
+            sql_table = TPCHSetup.mysql_table(table)
+            datalake.add_table(Table(sql_table.name, "mysql", mysql_admin, sql_table))
+        for table in mongodb_tables:
+            sql_table = TPCHSetup.mongodb_table(table)
+            datalake.add_table(Table(sql_table.name, "mongodb", mongodb_admin, sql_table))
+        return datalake
+
     # Folder should contain one folder per table in the datalake
     # Each table folder should contain: platform.txt, schema.txt, admin.txt
     def define_datalake_from_folder(self, folder_path):
@@ -205,7 +433,7 @@ class Datalake:
             schema_file   = tab+'/schema.txt'
             with open(platform_file) as f:
                 platform = f.readline()
-            self.add_table(Table(table_name, platform, admin_file, schema_file))
+            self.add_table(Table.define_admin_from_file(table_name, platform, admin_file, schema_file))
             print("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*")
         print("Table definitions complete! \n\n")
             
@@ -432,8 +660,7 @@ class GPT:
         #print(gpt_output)
     
 ###****************************************************************************************************
-if __name__ == "__main__":
-
+def main_file():
     ################# SETTINGS #############################
     ## I think full paths need to be given # TODO: Fix this 
     CONFIG_FOLDER = "/home/chitty/Desktop/cs598dk/dbknitter/dbknitter/config"
@@ -462,8 +689,51 @@ if __name__ == "__main__":
     # TODO: Fit many queries within same context
     
 
+def main_batch(argv):
+    import argparse
+    from pathlib import Path
 
-    
-    
-    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("output_dir", type=str,
+                        help="Path to store output CSV if successfully execute.")
+    args = parser.parse_args(argv)
+    output_dir = Path(args.output_dir)
 
+    mysql_admin = TPCHSetup.mysql_admin()
+    mongodb_admin = TPCHSetup.mongodb_admin()
+
+    gpt = GPT()
+
+    # for midx, mysql_tables, mongodb_tables in TPCHSetup.iter_all_mappings():  # all mappings
+    for midx, mysql_tables, mongodb_tables in islice(TPCHSetup.iter_all_mappings(), 3):
+        datalake = Datalake.from_tpch_mapping(
+            "myData",
+            mysql_admin,
+            mysql_tables,
+            mongodb_admin,
+            mongodb_tables,
+        )
+        # for qidx, query_sql in TPCHSetup.iter_all_queries():  # all 22 queries
+        for qidx, query_sql in islice(TPCHSetup.iter_all_queries(), 2):
+            prompt = Prompt(datalake)
+            query_prompt = prompt.gen_full_prompt(query_sql)
+
+            # Try mulitple times
+            for tidx in range(2):  # TODO: higher?
+                output_path = output_dir / f"m{midx}_q{qidx}_t{tidx}.txt"
+                gpt.call_chatgpt_api(query_prompt, output_path)
+                print(f"[{midx}, {qidx}, {tidx}] Written to {output_path}")
+
+                # TODO: Parse out Python and setup
+
+
+if __name__ == "__main__":
+    import sys
+    print(sys.argv)
+
+    if len(sys.argv) <= 1 or sys.argv[1] == "file":
+        main_file()
+    elif sys.argv[1] == "batch":
+        main_batch(sys.argv[2:])
+    else:
+        raise ValueError(f"Invalid args: {str(sys.argv)}")
