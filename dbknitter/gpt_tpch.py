@@ -138,7 +138,13 @@ class TPCHSetup:
     @staticmethod
     def iter_all_mappings():
         all_tpch_tables = ["nation", "region", "part", "supplier", "partsupp", "customer", "orders", "lineitem"] 
-        for platform_idxs in product([0, 1], repeat=len(all_tpch_tables)):
+        # for platform_idxs in product([0, 1], repeat=len(all_tpch_tables)):
+        for platform_idxs in [
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 0, 0, 1, 1, 1, 1],
+            [0, 1, 0, 1, 0, 1, 0, 1],
+        ]:
             table_lists = [[] for _ in range(len(all_tpch_tables))]
             for table_idx, platform_idx in enumerate(platform_idxs):
                 table_lists[platform_idx].append(all_tpch_tables[table_idx])
