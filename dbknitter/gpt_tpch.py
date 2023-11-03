@@ -18,6 +18,9 @@ from dbknitter.tpch_queries import tpch_queries
 #openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
+os.environ['OPENAI_API_KEY'] = "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"
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
 MAX_TOKEN=2000
 
 class Utility:
@@ -145,7 +148,13 @@ class TPCHSetup:
     def iter_all_mappings(splits):
         all_tpch_tables = ["nation", "region", "part", "supplier", "partsupp", "customer", "orders", "lineitem"] 
         # for platform_idxs in product([0, 1], repeat=len(all_tpch_tables)):
-        for platform_idxs in splits:
+        #for platform_idxs in splits:
+        for platform_idxs in [
+            #[0, 0, 0, 0, 0, 0, 0, 0],
+            #[1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 0, 0, 1, 1, 1, 1],
+            [0, 1, 0, 1, 0, 1, 0, 1],
+        ]:
             table_lists = [[] for _ in range(len(all_tpch_tables))]
             for table_idx, platform_idx in enumerate(platform_idxs):
                 table_lists[platform_idx].append(all_tpch_tables[table_idx])
@@ -467,6 +476,8 @@ def get_query(query, isfile=False):
     else:
         return query
 
+
+
 #############################################################################
 # Prompt for a given Datalake setup
 class Prompt:
@@ -501,7 +512,6 @@ class Prompt:
             tab = self.datalake.tables[table_n]
             temp += f"table {table_n} in {tab.platform}"
             temp += f"{add_delimiter(index+1, self.datalake.no_tables)}"
-
         self.datalake_info = self.datalake_info_pref + temp
         return self.datalake_info
     
@@ -536,7 +546,8 @@ class Prompt:
         return self.admin_info
     
     
-    def gen_full_prompt(self, query, isfile=False):
+    def gen_full_prompt(self, query, qidx, isfile=False):
+        assert type(qidx) == type(1)
         q = get_query(query, isfile)
         self.gen_datalake_info()
         self.gen_schema_info()
@@ -694,8 +705,25 @@ def main_file():
         gpt.call_chatgpt_api(query_prompt, output_file)
 
     # TODO: Fit many queries within same context
-    
 
+def parse_required_tables():
+    required_tables = dict()
+    with open("dbknitter/tables.txt", 'r') as f_:
+        lines = f_.readlines()
+        for line in lines:
+            qidx = int(line.split(",")[0].strip())
+            table = line.split(",")[1].strip()
+            if qidx not in required_tables:
+                required_tables[qidx] = list()
+            if table in required_tables[qidx]:
+                print(f"{table} is already in required_tables[{qidx}]")
+                print(required_tables[qidx])
+                assert False
+            required_tables[qidx].append(table)
+    print(f"required_tables: {required_tables}")
+    return required_tables
+
+    
 def main_batch(argv):
     import argparse
     from pathlib import Path
@@ -738,27 +766,41 @@ def main_batch(argv):
 
     gpt = GPT()
 
-    # for midx, mysql_tables, mongodb_tables in TPCHSetup.iter_all_mappings():  # all mappings
-    for midx, mysql_tables, mongodb_tables in islice(TPCHSetup.iter_all_mappings(splits), 3):
-        datalake = Datalake.from_tpch_mapping(
-            "myData",
-            mysql_admin,
-            mysql_tables,
-            mongodb_admin,
-            mongodb_tables,
-        )
-        # for qidx, query_sql in TPCHSetup.iter_all_queries():  # all 22 queries
-        for qidx, query_sql in islice(TPCHSetup.iter_all_queries(), 2):
+    for midx, mysql_tables, mongodb_tables in TPCHSetup.iter_all_mappings():  # all mappings
+    # for midx, mysql_tables, mongodb_tables in islice(TPCHSetup.iter_all_mappings(), 3):
+        required_tables = parse_required_tables()
+        for qidx, query_sql in TPCHSetup.iter_all_queries():  # all 22 queries
+        # for qidx, query_sql in islice(TPCHSetup.iter_all_queries(), 2):
+            req_t = required_tables[qidx]
+            new_mysql_tables = list()
+            new_mongodb_tables = list()
+            for t_ in mysql_tables:
+                if t_ in req_t:
+                   new_mysql_tables.append(t_) 
+            for t_ in mongodb_tables:
+                if t_ in req_t:
+                   new_mongodb_tables.append(t_)
+            datalake = Datalake.from_tpch_mapping(
+                "myData",
+                mysql_admin,
+                new_mysql_tables,
+                mongodb_admin,
+                new_mongodb_tables,
+            )
             prompt = Prompt(datalake)
-            query_prompt = prompt.gen_full_prompt(query_sql)
+            query_prompt = prompt.gen_full_prompt(query_sql, qidx)
 
             # Try mulitple times
-            for tidx in range(2):  # TODO: higher?
+            for tidx in range(2, 3):  # TODO: higher?
                 output_path = output_dir / f"m{midx}_q{qidx}_t{tidx}.txt"
                 gpt.call_chatgpt_api(query_prompt, output_path)
                 print(f"[{midx}, {qidx}, {tidx}] Written to {output_path}")
 
                 # TODO: Parse out Python and setup
+                print("*"*15)
+                print("return return")
+                print("*"*15)
+                return
 
 
 if __name__ == "__main__":
