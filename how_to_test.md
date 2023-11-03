@@ -12,4 +12,4 @@ In the following example, we assume the configuration is "[0, 0, 0, 0, 1, 1, 1, 
 6. enter platform
    cd platform
 7. run the grader
-   run_grader.sh 00001111
+   bash run_grader.sh 00001111
