@@ -1,1 +1,1 @@
-pip install pandas pymongo PyMySQL
+pip install -r requirements.txt

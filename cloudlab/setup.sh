@@ -30,3 +30,10 @@ sudo docker run hello-world
 ## For docker compose
 sudo apt install docker-compose
 
+
+sudo apt install python3-pip
+pip install -r requirements.txt
+
+
+
+
