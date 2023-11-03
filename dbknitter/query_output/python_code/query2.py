@@ -2,50 +2,41 @@ import mysql.connector
 from pymongo import MongoClient
 import pandas as pd
 
-# Create MySQL connection
-mydb1 = mysql.connector.connect(
- host="localhost",
- user="root",
- passwd="mySecret",
- database="basicInfo"
+# connect to MySQL
+mydb = mysql.connector.connect(
+  host="mysql",
+  user="root",
+  password="my-secret-pw",
+  database="tpch"
 )
 
-mydb2 = mysql.connector.connect(
- host="localhost2",
- user="root",
- passwd="mySecret2",
- database="familyInfo"
-)
+# get data from MySQL
+mycursor = mydb.cursor()
 
-# Create cursor
-mycursor1 = mydb1.cursor()
-mycursor2 = mydb2.cursor()
+mycursor.execute("SELECT * FROM NATION WHERE N_NAME = 'GERMANY'")
+nation = pd.DataFrame(mycursor.fetchall(), columns=[i[0] for i in mycursor.description])
 
-# Execute query
-mycursor1.execute("SELECT NAME, AGE FROM table1")
-mycursor2.execute("SELECT NAME FROM table2")
+mycursor.execute("SELECT * FROM SUPPLIER")
+supplier = pd.DataFrame(mycursor.fetchall(), columns=[i[0] for i in mycursor.description])
 
-# Fetch all rows
-mysql_data1 = mycursor1.fetchall()
-mysql_data2 = mycursor2.fetchall()
+# connect to MongoDB
+client = MongoClient("mongodb")
+db = client.tpch
 
-# Convert to dataframe
-df_mysql1 = pd.DataFrame(mysql_data1, columns=["NAME", "AGE"])
-df_mysql2 = pd.DataFrame(mysql_data2, columns=["NAME"])
+# get data from MongoDB
+part = pd.DataFrame(list(db.part.find()))
+partsupp = pd.DataFrame(list(db.partsupp.find()))
 
-# Create MongoDB connection
-client = MongoClient("mongodb://localhost3:27017/")
-db = client["interestInfo"]
+# process data
+supply = partsupp.merge(supplier, left_on='PS_SUPPKEY', right_on='S_SUPPKEY')
+combined = supply.merge(nation, left_on='S_NATIONKEY', right_on='N_NATIONKEY')
 
-# Fetch all documents
-mongodb_data = db.table3.find()
+grouped = combined.groupby('PS_PARTKEY').\
+    apply(lambda x: (x['PS_SUPPLYCOST'] * x['PS_AVAILQTY']).sum()).reset_index(name='VALUE')
 
-# Convert to dataframe
-df_mongodb = pd.DataFrame(list(mongodb_data))
+total_value = grouped['VALUE'].sum() * 0.0001000000
 
-# Merge dataframes
-result = pd.merge(df_mysql1, df_mongodb, on='NAME')
-result = pd.merge(result, df_mysql2, on='NAME')
+final_df = grouped[grouped['VALUE'] > total_value].sort_values('VALUE', ascending=False)
 
-# Write to CSV
-result.to_csv('query_output.csv', index=False)
+# write to csv
+final_df.to_csv('query_output.csv', index=False)

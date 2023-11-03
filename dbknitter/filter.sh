@@ -11,7 +11,7 @@
 # Does: extracts the python code and bash install instructions from chatgpt output
 # and saves it in the above folders
 
-OUTPUT_FOLDER="query_output" 
+OUTPUT_FOLDER="./dbknitter/query_output" 
 
 for file in $OUTPUT_FOLDER/*; 
 do   
