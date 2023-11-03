@@ -2,7 +2,7 @@
 ###
  # @Author: University of Illinois at Urbana Champaign
  # @Date: 2023-11-02 21:07:38
- # @LastEditTime: 2023-11-03 10:37:17
+ # @LastEditTime: 2023-11-03 14:22:32
  # @FilePath: /platforms/client/run_grader.sh
  # @Description: 
 ### 
@@ -33,6 +33,13 @@ for script in ${gpt_generated_source_code_directory}/*.sh; do
 done
 
 for file in ${gpt_generated_source_code_directory}/*.py; do
-    query_number=$(echo "$file" | grep -oP '(?<=_q)\d+')q
-    python "$grader_file" "$file" "${result_path}/q${query_number}.csv" "${expected_result_directory}/q${query_number}.csv"
+    query_number=$(echo "$file" | grep -oP '(?<=_q)\d+')
+    # Construct the command as a string
+    cmd="python $grader_file $file ${result_path}/q${query_number}.csv ${expected_result_directory}/q${query_number}.csv"
+
+# Echo the command so you can see it in the terminal
+    echo $cmd
+
+# Execute the command
+    eval $cmd
 done
