@@ -34,8 +34,18 @@ for i in "${!storage[@]}"; do
 done
 
 # Convert the arrays to comma-separated strings
-mysql_tables_string=$(IFS=,; echo "${mysql_tables[*]}")
-mongodb_tables_string=$(IFS=,; echo "${mongodb_tables[*]}")
+if [ ${#mysql_tables[@]} -eq 0 ]; then
+  mysql_tables_string="-"
+else
+  mysql_tables_string=$(IFS=,; echo "${mysql_tables[*]}")
+fi
+
+if [ ${#mongodb_tables[@]} -eq 0 ]; then
+  mongodb_tables_string="-"
+else
+  mongodb_tables_string=$(IFS=,; echo "${mongodb_tables[*]}")
+fi
+
 
 echo ${mysql_tables_string}
 echo ${mongodb_tables_string}
