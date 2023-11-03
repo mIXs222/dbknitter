@@ -182,12 +182,12 @@ class TPCHSetup:
             schema.emplace("N_NAME", "CHAR(25)", "NO_NULL")
             schema.emplace("N_REGIONKEY", "INTEGER", "NO_NULL")
             schema.emplace("N_COMMENT", "VARCHAR(152)", "NULL")
-            return SQL_TABLE("NATION", schema)
+            return SQL_TABLE("nation", schema)
         elif table == "region":
             schema.emplace("R_REGIONKEY", "INTEGER", "NO_NULL")
             schema.emplace("R_NAME", "CHAR(25)", "NO_NULL")
             schema.emplace("R_COMMENT", "VARCHAR(152)", "NULL")
-            return SQL_TABLE("REGION", schema)
+            return SQL_TABLE("region", schema)
         elif table == "part":
             schema.emplace("P_PARTKEY", "INTEGER", "NO_NULL")
             schema.emplace("P_NAME", "VARCHAR(55)", "NO_NULL")
@@ -198,7 +198,7 @@ class TPCHSetup:
             schema.emplace("P_CONTAINER", "CHAR(10)", "NO_NULL")
             schema.emplace("P_RETAILPRICE", "DECIMAL(15,2)", "NO_NULL")
             schema.emplace("P_COMMENT", "VARCHAR(23)", "NO_NULL")
-            return SQL_TABLE("PART", schema)
+            return SQL_TABLE("part", schema)
         elif table == "supplier":
             schema.emplace("S_SUPPKEY", "INTEGER", "NO_NULL")
             schema.emplace("S_NAME", "CHAR(25)", "NO_NULL")
@@ -207,14 +207,14 @@ class TPCHSetup:
             schema.emplace("S_PHONE", "CHAR(15)", "NO_NULL")
             schema.emplace("S_ACCTBAL", "DECIMAL(15,2)", "NO_NULL")
             schema.emplace("S_COMMENT", "VARCHAR(101)", "NO_NULL")
-            return SQL_TABLE("SUPPLIER", schema)
+            return SQL_TABLE("supplier", schema)
         elif table == "partsupp":
             schema.emplace("PS_PARTKEY", "INTEGER", "NO_NULL")
             schema.emplace("PS_SUPPKEY", "INTEGER", "NO_NULL")
             schema.emplace("PS_AVAILQTY", "INTEGER", "NO_NULL")
             schema.emplace("PS_SUPPLYCOST", "DECIMAL(15,2) ", "NO_NULL")
             schema.emplace("PS_COMMENT", "VARCHAR(199)", "NO_NULL" )
-            return SQL_TABLE("PARTSUPP", schema)
+            return SQL_TABLE("partsupp", schema)
         elif table == "customer":
             schema.emplace("C_CUSTKEY", "INTEGER", "NO_NULL")
             schema.emplace("C_NAME", "VARCHAR(25)", "NO_NULL")
@@ -224,7 +224,7 @@ class TPCHSetup:
             schema.emplace("C_ACCTBAL", "DECIMAL(15,2)  ", "NO_NULL")
             schema.emplace("C_MKTSEGMENT", "CHAR(10)", "NO_NULL")
             schema.emplace("C_COMMENT", "VARCHAR(117)", "NO_NULL")
-            return SQL_TABLE("CUSTOMER", schema)
+            return SQL_TABLE("customer", schema)
         elif table == "orders":
             schema.emplace("O_ORDERKEY", "INTEGER", "NO_NULL")
             schema.emplace("O_CUSTKEY", "INTEGER", "NO_NULL")
@@ -235,7 +235,7 @@ class TPCHSetup:
             schema.emplace("O_CLERK", "CHAR(15)", "NO_NULL",)
             schema.emplace("O_SHIPPRIORITY", "INTEGER", "NO_NULL")
             schema.emplace("O_COMMENT", "VARCHAR(79)", "NO_NULL")
-            return SQL_TABLE("ORDERS", schema)
+            return SQL_TABLE("orders", schema)
         elif table == "lineitem":
             schema.emplace("L_ORDERKEY", "INTEGER", "NO_NULL")
             schema.emplace("L_PARTKEY", "INTEGER", "NO_NULL")
@@ -253,7 +253,7 @@ class TPCHSetup:
             schema.emplace("L_SHIPINSTRUCT", "CHAR(25)", "NO_NULL")
             schema.emplace("L_SHIPMODE", "CHAR(10)", "NO_NULL")
             schema.emplace("L_COMMENT", "VARCHAR(44)", "NO_NULL")
-            return SQL_TABLE("LINEITEM", schema)
+            return SQL_TABLE("lineitem", schema)
         else:
             raise ValueError(f"Invalid mysql table name {table}")
 

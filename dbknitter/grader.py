@@ -6,7 +6,7 @@ from functools import partial
 from pathlib import Path
 
 
-DEFAULT_OUTPUT_PATH = Path("./output.csv")  # TODO: Change this
+DEFAULT_OUTPUT_PATH = Path("./query_output.csv")  # TODO: Change this
 
 
 class Score(str, enum.Enum):

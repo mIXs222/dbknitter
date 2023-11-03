@@ -16,7 +16,7 @@ fi
 config="$1"
 
 # Define directories based on the config parameter
-expected_result_directory="/platforms/expected/s01"
+expected_result_directory="/platform/expected/s01"
 gpt_generated_source_code_directory="/platform/source/s01/v1_9/m${config}"
 result_path="/platform/output/m${config}"
 grader_file="/grader.py"
@@ -33,9 +33,11 @@ for script in ${gpt_generated_source_code_directory}/*.sh; do
 done
 
 for file in ${gpt_generated_source_code_directory}/*.py; do
+    fname=$(basename $file)
+    fbname=${fname%.*}
     query_number=$(echo "$file" | grep -oP '(?<=_q)\d+')
     # Construct the command as a string
-    cmd="python $grader_file $file ${result_path}/q${query_number}.csv ${expected_result_directory}/q${query_number}.csv"
+    cmd="python $grader_file $file ${result_path}/${fbname}.csv ${expected_result_directory}/q${query_number}.csv"
 
 # Echo the command so you can see it in the terminal
     echo $cmd
