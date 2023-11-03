@@ -9,9 +9,15 @@ from itertools import islice, product
 
 from dbknitter.tpch_queries import tpch_queries
 
+## python dbknitter/gpt_tpch.py batch --output_dir platforms/client/source/s01/v1_9   --db_splits_file  db_splits.txt  --api_key  <give_your_key>
+## OR
+## python3 dbknitter/gpt_tpch.py batch --output_dir junk  --db_splits=00001111,10101010 --api_key  <give_your_key>
 
-os.environ['OPENAI_API_KEY'] = "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"
-openai.api_key = os.getenv("OPENAI_API_KEY")
+
+#os.environ['OPENAI_API_KEY'] = "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"
+#openai.api_key = os.getenv("OPENAI_API_KEY")
+
+
 MAX_TOKEN=2000
 
 class Utility:
@@ -136,15 +142,10 @@ class SQL_TABLE:
 # TPC-H Datalake Setup for benchmarking
 class TPCHSetup:
     @staticmethod
-    def iter_all_mappings():
+    def iter_all_mappings(splits):
         all_tpch_tables = ["nation", "region", "part", "supplier", "partsupp", "customer", "orders", "lineitem"] 
         # for platform_idxs in product([0, 1], repeat=len(all_tpch_tables)):
-        for platform_idxs in [
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 1, 1, 1, 1, 1, 1, 1],
-            [0, 0, 0, 0, 1, 1, 1, 1],
-            [0, 1, 0, 1, 0, 1, 0, 1],
-        ]:
+        for platform_idxs in splits:
             table_lists = [[] for _ in range(len(all_tpch_tables))]
             for table_idx, platform_idx in enumerate(platform_idxs):
                 table_lists[platform_idx].append(all_tpch_tables[table_idx])
@@ -700,10 +701,37 @@ def main_batch(argv):
     from pathlib import Path
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("output_dir", type=str,
+    parser.add_argument("--output_dir", type=str,
                         help="Path to store output CSV if successfully execute.")
+    
+    parser.add_argument("--db_splits", type=str,
+                        help="Hwo to split tables among different databases")
+    #OR
+    parser.add_argument("--db_splits_file", type=str,
+                        help="Hwo to split tables among different databases")
+    
+    parser.add_argument("--api_key", type=str,
+                        help="Chatgpt api key")
+    
     args = parser.parse_args(argv)
     output_dir = Path(args.output_dir)
+
+    if args.db_splits_file is not None:
+        db_splits_file = Path(args.db_splits_file)
+        with open(db_splits_file, "r") as file:
+            splits = [[int(x) for x in line.split()] for line in file]   # [[0,0,0,1,1..], [0,1,0,...]]
+    elif args.db_splits is not None:
+        db_splits = args.db_splits
+        splits = [[int(x[i]) for i in range(len(x))] for x in db_splits.split(',')]  # 0001111,0101010  ->  [[0,0,0,1,1..], [0,1,0,...]]
+    else:
+        print("Table splits among databases not given")
+        return
+
+    chatgpt_api_key = args.api_key
+    
+
+    os.environ['OPENAI_API_KEY'] = chatgpt_api_key
+    openai.api_key = os.getenv("OPENAI_API_KEY")
 
     mysql_admin = TPCHSetup.mysql_admin()
     mongodb_admin = TPCHSetup.mongodb_admin()
@@ -711,7 +739,7 @@ def main_batch(argv):
     gpt = GPT()
 
     # for midx, mysql_tables, mongodb_tables in TPCHSetup.iter_all_mappings():  # all mappings
-    for midx, mysql_tables, mongodb_tables in islice(TPCHSetup.iter_all_mappings(), 3):
+    for midx, mysql_tables, mongodb_tables in islice(TPCHSetup.iter_all_mappings(splits), 3):
         datalake = Datalake.from_tpch_mapping(
             "myData",
             mysql_admin,
