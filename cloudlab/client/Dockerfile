@@ -9,6 +9,7 @@ RUN python -m pip install pandas pymongo
 
 # Install platform clients
 RUN apt-get install mysql-client --yes
+RUN python -m pip install redis
 
 # Install DBKnitter
 COPY ./requirements.txt /dbknitter/requirements.txt

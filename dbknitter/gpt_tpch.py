@@ -19,7 +19,7 @@ from dbknitter.tpch_queries import tpch_queries
 
 
 os.environ['OPENAI_API_KEY'] = "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"
-Platforms = ["mysql", "mongodb"]
+Platforms = ["mysql", "mongodb", "redis"]
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 MAX_TOKEN=2000
@@ -158,17 +158,32 @@ class TPCHSetup:
     def iter_all_mappings(splits):
         all_tpch_tables = ["nation", "region", "part", "supplier", "partsupp", "customer", "orders", "lineitem"] 
         # for platform_idxs in product([0, 1], repeat=len(all_tpch_tables)):
-        #for platform_idxs in splits:
-        for platform_idxs in [
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 1, 1, 1, 1, 1, 1, 1],
-            [0, 0, 0, 0, 1, 1, 1, 1],
-            [0, 1, 0, 1, 0, 1, 0, 1],
-        ]:
-            table_lists = [[] for _ in range(len(all_tpch_tables))]
+        for platform_idxs in splits:
+        # for platform_idxs in [
+        #     [0, 0, 0, 0, 0, 0, 0, 0],
+        #     [1, 1, 1, 1, 1, 1, 1, 1],
+        #     [2, 2, 2, 2, 2, 2, 2, 2],
+
+        #     [0, 0, 0, 0, 1, 1, 1, 1],
+        #     [0, 1, 0, 1, 0, 1, 0, 1],
+
+        #     [0, 0, 0, 0, 2, 2, 2, 2],
+        #     [0, 2, 0, 2, 0, 2, 0, 2],
+
+        #     [1, 1, 1, 1, 2, 2, 2, 2],
+        #     [1, 2, 1, 2, 1, 2, 1, 2],
+
+        #     [0, 1, 2, 0, 1, 2, 0, 1],
+        #     [1, 2, 0, 1, 2, 0, 1, 2],
+        #     [2, 0, 1, 2, 0, 1, 2, 0],
+        #     [0, 2, 1, 0, 2, 1, 0, 2],
+        #     [2, 1, 0, 2, 1, 0, 2, 1],
+        #     [1, 0, 2, 1, 0, 2, 1, 0],
+        # ]:
+            table_lists = [[] for _ in range(3)]
             for table_idx, platform_idx in enumerate(platform_idxs):
                 table_lists[platform_idx].append(all_tpch_tables[table_idx])
-            yield "".join(map(str, platform_idxs)), table_lists[0], table_lists[1]
+            yield "".join(map(str, platform_idxs)), table_lists[0], table_lists[1], table_lists[2]
 
     @staticmethod
     def iter_all_queries():
@@ -358,6 +373,97 @@ class TPCHSetup:
         else:
             raise ValueError(f"Invalid mongodb table name {table}")
 
+    @staticmethod
+    def redis_admin():  # from platforms/redis/tpch_init.sh AND cloudlab/docker-compose.yml
+        return {
+            "database name": "0",
+            "port": "6379",
+            "hostname": "redis",
+        }
+
+    @staticmethod
+    def redis_table(table: str):  # table name in lowercase, default TPC-H spelling.
+        schema = SQL_SCHEMA()
+        if table == "nation":
+            schema.emplace("N_NATIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("N_NAME", "CHAR(25)", "NO_NULL")
+            schema.emplace("N_REGIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("N_COMMENT", "VARCHAR(152)", "NULL")
+            return SQL_TABLE("nation", schema)
+        elif table == "region":
+            schema.emplace("R_REGIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("R_NAME", "CHAR(25)", "NO_NULL")
+            schema.emplace("R_COMMENT", "VARCHAR(152)", "NULL")
+            return SQL_TABLE("region", schema)
+        elif table == "part":
+            schema.emplace("P_PARTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("P_NAME", "VARCHAR(55)", "NO_NULL")
+            schema.emplace("P_MFGR", "CHAR(25)", "NO_NULL")
+            schema.emplace("P_BRAND", "CHAR(10)", "NO_NULL")
+            schema.emplace("P_TYPE", "VARCHAR(25)", "NO_NULL")
+            schema.emplace("P_SIZE", "INTEGER", "NO_NULL")
+            schema.emplace("P_CONTAINER", "CHAR(10)", "NO_NULL")
+            schema.emplace("P_RETAILPRICE", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("P_COMMENT", "VARCHAR(23)", "NO_NULL")
+            return SQL_TABLE("part", schema)
+        elif table == "supplier":
+            schema.emplace("S_SUPPKEY", "INTEGER", "NO_NULL")
+            schema.emplace("S_NAME", "CHAR(25)", "NO_NULL")
+            schema.emplace("S_ADDRESS", "VARCHAR(40)", "NO_NULL")
+            schema.emplace("S_NATIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("S_PHONE", "CHAR(15)", "NO_NULL")
+            schema.emplace("S_ACCTBAL", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("S_COMMENT", "VARCHAR(101)", "NO_NULL")
+            return SQL_TABLE("supplier", schema)
+        elif table == "partsupp":
+            schema.emplace("PS_PARTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("PS_SUPPKEY", "INTEGER", "NO_NULL")
+            schema.emplace("PS_AVAILQTY", "INTEGER", "NO_NULL")
+            schema.emplace("PS_SUPPLYCOST", "DECIMAL(15,2) ", "NO_NULL")
+            schema.emplace("PS_COMMENT", "VARCHAR(199)", "NO_NULL" )
+            return SQL_TABLE("partsupp", schema)
+        elif table == "customer":
+            schema.emplace("C_CUSTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("C_NAME", "VARCHAR(25)", "NO_NULL")
+            schema.emplace("C_ADDRESS", "VARCHAR(40)", "NO_NULL")
+            schema.emplace("C_NATIONKEY", "INTEGER", "NO_NULL")
+            schema.emplace("C_PHONE", "CHAR(15)", "NO_NULL")
+            schema.emplace("C_ACCTBAL", "DECIMAL(15,2)  ", "NO_NULL")
+            schema.emplace("C_MKTSEGMENT", "CHAR(10)", "NO_NULL")
+            schema.emplace("C_COMMENT", "VARCHAR(117)", "NO_NULL")
+            return SQL_TABLE("customer", schema)
+        elif table == "orders":
+            schema.emplace("O_ORDERKEY", "INTEGER", "NO_NULL")
+            schema.emplace("O_CUSTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("O_ORDERSTATUS", "CHAR(1)", "NO_NULL")
+            schema.emplace("O_TOTALPRICE", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("O_ORDERDATE", "DATE", "NO_NULL")
+            schema.emplace("O_ORDERPRIORITY", "CHAR(15)", "NO_NULL", )
+            schema.emplace("O_CLERK", "CHAR(15)", "NO_NULL",)
+            schema.emplace("O_SHIPPRIORITY", "INTEGER", "NO_NULL")
+            schema.emplace("O_COMMENT", "VARCHAR(79)", "NO_NULL")
+            return SQL_TABLE("orders", schema)
+        elif table == "lineitem":
+            schema.emplace("L_ORDERKEY", "INTEGER", "NO_NULL")
+            schema.emplace("L_PARTKEY", "INTEGER", "NO_NULL")
+            schema.emplace("L_SUPPKEY", "INTEGER", "NO_NULL")
+            schema.emplace("L_LINENUMBER", "INTEGER", "NO_NULL")
+            schema.emplace("L_QUANTITY", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_EXTENDEDPRICE", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_DISCOUNT", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_TAX", "DECIMAL(15,2)", "NO_NULL")
+            schema.emplace("L_RETURNFLAG", "CHAR(1)", "NO_NULL")
+            schema.emplace("L_LINESTATUS", "CHAR(1)", "NO_NULL")
+            schema.emplace("L_SHIPDATE", "DATE", "NO_NULL")
+            schema.emplace("L_COMMITDATE", "DATE", "NO_NULL")
+            schema.emplace("L_RECEIPTDATE", "DATE", "NO_NULL")
+            schema.emplace("L_SHIPINSTRUCT", "CHAR(25)", "NO_NULL")
+            schema.emplace("L_SHIPMODE", "CHAR(10)", "NO_NULL")
+            schema.emplace("L_COMMENT", "VARCHAR(44)", "NO_NULL")
+            return SQL_TABLE("lineitem", schema)
+        else:
+            raise ValueError(f"Invalid redis table name {table}")
+
 
 
 ####################################################################################
@@ -384,9 +490,11 @@ class Table:
         if self.platform == "mysql":                                          
             self.column_equivalent = "columns"                                 # what are "columns" called in that platform   
         elif self.platform == "mongodb":
-            self.column_equivalent = "fields"     
+            self.column_equivalent = "fields"
+        elif self.platform == "redis":
+            self.column_equivalent = "fields in stream"
         else:
-            sys.exit("Invalid platform name. Should be: mysql, mongodb")      # TODO: move this kind of information to platform.txt
+            sys.exit("Invalid platform name. Should be: mysql, mongodb, redis")
 
     @staticmethod
     def define_admin_from_file(self, table_name, platform, admin_file, schema_file):
@@ -438,6 +546,8 @@ class Datalake:
         mysql_tables,
         mongodb_admin,
         mongodb_tables,
+        redis_admin,
+        redis_tables,
     ):
         datalake = Datalake(name)
         for table in mysql_tables:
@@ -446,6 +556,9 @@ class Datalake:
         for table in mongodb_tables:
             sql_table = TPCHSetup.mongodb_table(table)
             datalake.add_table(Table(sql_table.name, "mongodb", mongodb_admin, sql_table))
+        for table in redis_tables:
+            sql_table = TPCHSetup.redis_table(table)
+            datalake.add_table(Table(sql_table.name, "redis", redis_admin, sql_table))
         return datalake
 
     # Folder should contain one folder per table in the datalake
@@ -529,7 +642,8 @@ class Prompt:
             table_schema += f"{table_n}(table name): "
             for i, col_name in enumerate(tab.equivalent_sql_table.schema.columns):
                 col = tab.equivalent_sql_table.schema.columns[col_name]   # SQL_COLUMN object
-                table_schema += f"column {col_name} of type {col.datatype}"
+                table_schema += f"column {col_name}"
+                # table_schema += f" of type {col.datatype}"
                 if(i < len(tab.equivalent_sql_table.schema.columns)-1):
                     table_schema += ", "
                 else:
@@ -753,7 +867,7 @@ def main_batch(argv):
     parser.add_argument("--db_splits_file", type=str,
                         help="Hwo to split tables among different databases")
     
-    parser.add_argument("--api_key", type=str,
+    parser.add_argument("--api_key", type=str, default=openai.api_key,
                         help="Chatgpt api key")
     
     args = parser.parse_args(argv)
@@ -770,56 +884,50 @@ def main_batch(argv):
         print("Table splits among databases not given")
         return
 
-    chatgpt_api_key = args.api_key
-    
+    chatgpt_api_key = args.api_key    
 
     os.environ['OPENAI_API_KEY'] = chatgpt_api_key
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
     mysql_admin = TPCHSetup.mysql_admin()
     mongodb_admin = TPCHSetup.mongodb_admin()
+    redis_admin = TPCHSetup.redis_admin()
 
     gpt = GPT()
 
-    for midx, mysql_tables, mongodb_tables in TPCHSetup.iter_all_mappings(splits):  # all mappings
-    # for midx, mysql_tables, mongodb_tables in islice(TPCHSetup.iter_all_mappings(), 3):
-        required_tables = parse_required_tables()
+    required_tables_by_query = parse_required_tables()
+
+    for midx, mysql_tables, mongodb_tables, redis_tables in TPCHSetup.iter_all_mappings(splits):  # all mappings
+    # for midx, mysql_tables, mongodb_tables, redis_tables in islice(TPCHSetup.iter_all_mappings(), 3):
         for qidx, query_sql in TPCHSetup.iter_all_queries():  # all 22 queries
         # for qidx, query_sql in islice(TPCHSetup.iter_all_queries(), 2):
-            req_t = required_tables[qidx]
-            new_mysql_tables = list()
-            new_mongodb_tables = list()
-            for t_ in mysql_tables:
-                if t_ in req_t:
-                   new_mysql_tables.append(t_) 
-            for t_ in mongodb_tables:
-                if t_ in req_t:
-                   new_mongodb_tables.append(t_)
+            required_table = required_tables_by_query[qidx]
             datalake = Datalake.from_tpch_mapping(
                 "myData",
                 mysql_admin,
-                new_mysql_tables,
+                list(t for t in mysql_tables if t in required_table),
                 mongodb_admin,
-                new_mongodb_tables,
+                list(t for t in mongodb_tables if t in required_table),
+                redis_admin,
+                list(t for t in redis_tables if t in required_table),
             )
             prompt = Prompt(datalake)
             query_prompt = prompt.gen_full_prompt(query_sql, qidx)
             print(query_prompt)
 
             # Try mulitple times
-            for tidx in range(2, 3):  # TODO: higher?
-                output_directory = output_dir / f"m{midx}"
-                if not os.path.exists(output_directory):
-                    os.makedirs(output_directory)
-                output_path = output_directory / f"m{midx}_q{qidx}_t{tidx}.txt"
+            for tidx in range(3):  # TODO: higher?
+                output_dir_midx = output_dir / f"m{midx}"
+                if not os.path.exists(output_dir_midx):
+                    os.makedirs(output_dir_midx)
+                output_path = output_dir_midx / f"m{midx}_q{qidx}_t{tidx}.txt"
                 gpt.call_chatgpt_api(query_prompt, output_path)
                 print(f"[{midx}, {qidx}, {tidx}] Written to {output_path}")
 
-                # # TODO: Parse out Python and setup
-                # print("*"*15)
-                # print("return return")
-                # print("*"*15)
-                # return
+                # TODO: Parse out Python and setup
+                print("*"*15)
+                print("return return")
+                print("*"*15)
 
 
 if __name__ == "__main__":
