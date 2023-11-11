@@ -19,6 +19,7 @@ from dbknitter.tpch_queries import tpch_queries
 
 
 os.environ['OPENAI_API_KEY'] = "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"
+Platforms = ["mysql", "mongodb"]
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 MAX_TOKEN=2000
@@ -59,16 +60,25 @@ util = Utility()
 
 
 
+
 ''' 
 Example Prompt:
 
-- I have a mysql table named DETAILS and a mongoldb table named INTERESTS.
-- DETAILS has the columns NAME, AGE, ADDRESS. INTERESTS has the fields of NAME, INTEREST. INTEREST is a list of strings and can be empty.
+- I have several tables stored in different data systems, the configuration is as follow:
+- MongoDB: INTERESTS
+- MySQL: DETAILS
+
+- the table schemas are as follow:
+- INTERESTS: NAME, INTEREST
+- DETAILS: NAME, AGE, ADDRESS
+
 - But the user of my data thinks all data is stored in mysql.
 - They wrote the following query:
 - SELECT DETAILS.AGE, INTERESTS.INTEREST
 - FROM DETAILS JOIN  INTERESTS ON DETAILS.NAME = INTERESTS.NAME
-- Please generate a python code to execute this query. My mysql password is my-pwd. Output of the query must be written to a file name query_output.csv
+
+- My mysql password is my-pwd. Output of the query must be written to a file name query_output.csv
+- Please output only the python code and a bash command to installtion all dependencies to run that python code.
 '''
 ###################################################################################
 
@@ -150,8 +160,8 @@ class TPCHSetup:
         # for platform_idxs in product([0, 1], repeat=len(all_tpch_tables)):
         #for platform_idxs in splits:
         for platform_idxs in [
-            #[0, 0, 0, 0, 0, 0, 0, 0],
-            #[1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1, 1, 1, 1, 1],
             [0, 0, 0, 0, 1, 1, 1, 1],
             [0, 1, 0, 1, 0, 1, 0, 1],
         ]:
@@ -484,80 +494,85 @@ class Prompt:
     def __init__(self, datalake, output_file="query_output.csv"):
         self.datalake      = datalake
         self.output_file   = output_file
-
         # prefaces
-        self.datalake_info_pref = "I have organized my data as follows: "   ## <table1> in <db1>, ....
-        self.schema_info_pref   = ""                                        ## "<table1> has <columns/fields etc> <cloumn_name>, of type <type>, and can be <special_cases>"
-        self.admin_info_pref    = "Details of my databases are as follows : "
-        self.story         = "But the user of my data thinks all the data is stored in mysql with the same column names."  # TODO: "with same column names"?
-        # self.sql_schema_pref    = "They think the tables have the following schemas : "       # TODO: Is this  required
+        self.database_platform_info_pref = "I have several databases of different platforms.\n"
+        self.story         = "But the user of my data thinks all the data is stored in mysql." 
         self.query_pref         = "With that assumption, they wrote the following query: "
-        self.output_spec   = f"Generate a python code to execute this query on my original data. Query's output should be written to the file {self.output_file}. Please output only the python code and a bash command to installtion all dependencies to run that python code."
+        self.output_spec   = f"Generate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file {self.output_file}. Please seperately output 1. the bash commandspython code(.py) and 2. a bash command file (.sh) to install all dependencies to run that python code."
+        self.note_info = "Note that if a table is not in a database, it should not appear in the query for that database."
 
-        self.datalake_info = ""
-        self.schema_info   = ""
-        self.admin_info    = ""
-
-    def to_dict(self):
-        member_variables = {attr: getattr(self, attr) for attr in dir(self) if not callable(getattr(self, attr)) and not attr.startswith("__")}
-        for k, v in member_variables.items():
-            print(f"* {k}: {v}")
-        return member_variables
+        self.conf_info = self.gen_all_config_info()
     
-    def gen_datalake_info(self):
-        ## <table1> in <db1>, ....
-        temp = ""
-
-        for index, table_n in enumerate(self.datalake.tables):
-            tab = self.datalake.tables[table_n]
-            temp += f"table {table_n} in {tab.platform}"
-            temp += f"{add_delimiter(index+1, self.datalake.no_tables)}"
-        self.datalake_info = self.datalake_info_pref + temp
-        return self.datalake_info
+    def _list_to_string(self, l):
+        list_str = ""
+        for i, elem in enumerate(l):
+            list_str += elem
+            if i < len(l)-1:
+                list_str += ", "
+        return list_str
     
-    def gen_schema_info(self):
-        ## "<table1> has <columns/fields etc> <cloumn_name>, of type <type>, and can be <special_cases>"
-        temp = ""
-        for _, table_n in enumerate(self.datalake.tables):
+    def gen_db_config_info(self, platform_name, database_name, table_names):
+        #platform <> has database named <> with tables: <>,<>,<> inside.
+        #the table schema are as follows:
+        #<table name>: XXX
+        #the database admin info are as follows:
+        #<database name>: XXX
+        print(table_names)
+        if(len(table_names) == 0):
+            return ""
+        gist:str = f"{platform_name} has database named {database_name} with tables: "
+        gist = gist + self._list_to_string(table_names) + "\n"
+        
+        table_schema:str = "the table schema are as follows:\n"
+        for table_n in table_names:
             tab = self.datalake.tables[table_n]                  # Table object 
-            temp += f"Table {table_n} has the following {tab.column_equivalent}: "
-
+            table_schema += f"{table_n}(table name): "
             for i, col_name in enumerate(tab.equivalent_sql_table.schema.columns):
                 col = tab.equivalent_sql_table.schema.columns[col_name]   # SQL_COLUMN object
-                temp += f"{col_name} of type {col.datatype}"
-                temp += f"{add_delimiter(i+1, tab.equivalent_sql_table.schema.no_columns)}"
-
-        self.schema_info = self.schema_info_pref + temp
-        return self.schema_info
+                table_schema += f"column {col_name} of type {col.datatype}"
+                if(i < len(tab.equivalent_sql_table.schema.columns)-1):
+                    table_schema += ", "
+                else:
+                    table_schema += "\n"
+                    
+        admin:str = "the database admin info are as follows:\n"
+        example_table = self.datalake.tables[table_names[0]]
+        for spec_name in example_table.admin_details:
+            admin += f"{spec_name}: {example_table.admin_details[spec_name]}"
+            if(i < len(example_table.admin_details)-1):
+                admin += ", "
+            else:
+                admin += "\n"
+                
+        return gist + table_schema + admin
     
-    def gen_admin_info(self):
-        ## "for <table1> the <hostname> is <insert>, the <password> is <inser> "
-        temp = ""
-        for _, table_n in enumerate(self.datalake.tables):
-            tab = self.datalake.tables[table_n]                  # Table object 
-            temp += f" For table {table_n} "
-
-            L = len(tab.admin_details)
-            for i, spec_name in enumerate(tab.admin_details):
-                temp += f"the {spec_name} is {tab.admin_details[spec_name]}"
-                temp += f"{add_delimiter(i+1, L)}"
-
-        self.admin_info = self.admin_info_pref + temp
-        return self.admin_info
-    
+    def gen_all_config_info(self):
+        config_info = self.database_platform_info_pref + "\n"
+        
+        platformdb2table_n = {}
+        for platform in Platforms:
+            platformdb2table_n[platform] = {}
+        for table_n in self.datalake.tables:
+            tab = self.datalake.tables[table_n]
+            if tab.admin_details["database name"] in platformdb2table_n[tab.platform]:
+                platformdb2table_n[tab.platform][tab.admin_details["database name"]].append(table_n)
+            else:
+                platformdb2table_n[tab.platform][tab.admin_details["database name"]] = [table_n]
+                
+        for platform, dbs_with_tables in platformdb2table_n.items():
+            for db_name, table_names in dbs_with_tables.items():
+                config_info += self.gen_db_config_info(platform, db_name, table_names)
+                config_info += "\n"
+                
+        
+        return config_info
     
     def gen_full_prompt(self, query, qidx, isfile=False):
         assert type(qidx) == type(1)
+  
         q = get_query(query, isfile)
-        self.gen_datalake_info()
-        self.gen_schema_info()
-        self.gen_admin_info()
-
-        prompt = ""
-        prompt +=  self.datalake_info + '\n' + self.schema_info + "\n" + self.admin_info + " \n" + self.story + "\n" + self.query_pref + q + "\n" + self.output_spec
         
-        print("The final prompt is: \n\n")
-        print(prompt)
+        prompt =  self.conf_info + " \n" + self.story + "\n" + self.query_pref + q + "\n" + self.output_spec + "\n" + self.note_info
         return prompt
 
 #####################################################################################################
@@ -766,7 +781,7 @@ def main_batch(argv):
 
     gpt = GPT()
 
-    for midx, mysql_tables, mongodb_tables in TPCHSetup.iter_all_mappings():  # all mappings
+    for midx, mysql_tables, mongodb_tables in TPCHSetup.iter_all_mappings(splits):  # all mappings
     # for midx, mysql_tables, mongodb_tables in islice(TPCHSetup.iter_all_mappings(), 3):
         required_tables = parse_required_tables()
         for qidx, query_sql in TPCHSetup.iter_all_queries():  # all 22 queries
@@ -789,18 +804,22 @@ def main_batch(argv):
             )
             prompt = Prompt(datalake)
             query_prompt = prompt.gen_full_prompt(query_sql, qidx)
+            print(query_prompt)
 
             # Try mulitple times
             for tidx in range(2, 3):  # TODO: higher?
-                output_path = output_dir / f"m{midx}_q{qidx}_t{tidx}.txt"
+                output_directory = output_dir / f"m{midx}"
+                if not os.path.exists(output_directory):
+                    os.makedirs(output_directory)
+                output_path = output_directory / f"m{midx}_q{qidx}_t{tidx}.txt"
                 gpt.call_chatgpt_api(query_prompt, output_path)
                 print(f"[{midx}, {qidx}, {tidx}] Written to {output_path}")
 
-                # TODO: Parse out Python and setup
-                print("*"*15)
-                print("return return")
-                print("*"*15)
-                return
+                # # TODO: Parse out Python and setup
+                # print("*"*15)
+                # print("return return")
+                # print("*"*15)
+                # return
 
 
 if __name__ == "__main__":
