@@ -612,7 +612,8 @@ class Prompt:
         self.story         = "But the user of my data thinks all the data is stored in mysql." 
         self.query_pref         = "With that assumption, they wrote the following query: "
         self.output_spec   = f"Generate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file {self.output_file}. Please seperately output 1. the bash commandspython code(.py) and 2. a bash command file (.sh) to install all dependencies to run that python code."
-        self.note_info = "Note that if a table is not in a database, it should not appear in the query for that database."
+        # Note: Specify the specific python libraries to be used in the python code. And other considerations 
+        self.note_info = "Note that if a table is not in a database, it should not appear in the query for that database. Use the python library 'mysql.connector' to connect the mysql server. Use 'pymongo' to connect to the mongodb server."
 
         self.conf_info = self.gen_all_config_info()
     
