@@ -1,0 +1,92 @@
+uid, chatcmpl-8JkyWOZySKniZpSfvTLvbnin1DBX4
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer, orders\nthe table schema are as follows:\ncustomer(table name): column C_CUSTKEY of type INTEGER, column C_NAME of type VARCHAR(25), column C_ADDRESS of type VARCHAR(40), column C_NATIONKEY of type INTEGER, column C_PHONE of type CHAR(15), column C_ACCTBAL of type DECIMAL(15,2)  , column C_MKTSEGMENT of type CHAR(10), column C_COMMENT of type VARCHAR(117)\norders(table name): column O_ORDERKEY of type INTEGER, column O_CUSTKEY of type INTEGER, column O_ORDERSTATUS of type CHAR(1), column O_TOTALPRICE of type DECIMAL(15,2), column O_ORDERDATE of type DATE, column O_ORDERPRIORITY of type CHAR(15), column O_CLERK of type CHAR(15), column O_SHIPPRIORITY of type INTEGER, column O_COMMENT of type VARCHAR(79)\nthe database admin info are as follows:\ndatabase name: tpch\nport: 27017\nhostname: mongodb\n\n \nBut the user of my data thinks all the data is stored in mysql.\nWith that assumption, they wrote the following query: \nSELECT\n    C_COUNT,\n    COUNT(*) AS CUSTDIST\nFROM\n    (\n    SELECT\n        C_CUSTKEY,\n        COUNT(O_ORDERKEY) AS C_COUNT\n    FROM\n        customer LEFT OUTER JOIN orders ON\n        C_CUSTKEY = O_CUSTKEY\n        AND O_COMMENT NOT LIKE '%pending%deposits%'\n    GROUP BY\n        C_CUSTKEY\n    )   C_ORDERS\nGROUP BY\n    C_COUNT\nORDER BY\n    CUSTDIST DESC,\n    C_COUNT DESC\n\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Please seperately output 1. the bash commandspython code(.py) and 2. a bash command file (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 9.5367431640625e-07
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, 1. Python Code (.py):
+
+```python
+import os
+import sys
+import csv
+from pymongo import MongoClient
+from bson.code import Code
+from bson.json_util import dumps
+
+
+def export_to_csv(data, filename="query_output.csv"):
+    keys = data[0].keys()
+    with open(filename, 'w', newline='') as output_file:
+        dict_writer = csv.DictWriter(output_file, keys)
+        dict_writer.writeheader()
+        dict_writer.writerows(data)
+
+
+# connect to MongoDB, change the << MONGODB URL >> to reflect your own connection string
+client = MongoClient("mongodb://mongodb:27017/")
+db = client.tpch
+
+
+mapfunc = Code("function() {"
+               "emit(this.C_CUSTKEY, {"
+               "count: 1,"
+               "orders: this.O_ORDERCOMMENT.includes('pendingdeposits') ? 0 : 1"
+               "});"
+               "}")
+
+reducefunc = Code("function(keyCustId, values) {"
+                  "var result = {count: 0, orders: 0};"
+                  "values.forEach(function(value) {"
+                  "result.count += value.count;"
+                  "result.orders += value.orders;"
+                  "});"
+                  "return result;"
+                  "}")
+
+query = db.customers.map_reduce(mapfunc, reducefunc, "myresults")
+
+result_query = list(query.find())
+
+result = []
+for item in result_query:
+    cust_dist = {"C_COUNT": item["_id"], "CUSTDIST": item["value"]["count"]}
+    result.append(cust_dist)
+
+export_to_csv(result)
+```
+
+This script can be executed with a command like: `python3 scriptname.py`, if the script were named "scriptname.py". Remember to replace "scriptname.py" with your actual filename.
+
+2. Bash Command File (.sh) to Install Dependencies:
+
+```bash
+#!/bin/bash
+# This script should be run as root or with sudo privilege
+
+# Update the package lists for upgrades and new package installations
+sudo apt-get update
+
+# Upgrade all upgradable packages
+sudo apt-get upgrade
+
+# Install Python3 and pip3
+sudo apt-get install -y python3 python3-pip
+
+# Install Python MongoDB Driver
+pip3 install pymongo
+
+# Install bson for MongoDB
+pip3 install bson
+
+# End of Script
+```
+
+Run this script with command: `sh scriptname.sh`, if the script were named "scriptname.sh". Remember to replace "scriptname.sh" with your actual filename.
+created_time, 1699719496
+completion_tokens, 514
+prompt_tokens, 474
+total_tokens, 988
