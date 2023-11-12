@@ -1,4 +1,12 @@
 #!/bin/bash
+###
+ # @Author: fhx hanxif01@gmail.com
+ # @Date: 2023-11-02 21:13:29
+ # @LastEditors: fhx hanxif01@gmail.com
+ # @LastEditTime: 2023-11-12 15:59:44
+ # @FilePath: /dbknitter/dbknitter/filter2.sh
+ # @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+### 
 
 # author:  Chirag C. Shetty (cshetty2@illinois.edu)
 # date: Oct 20, 2023 
@@ -38,9 +46,9 @@ for source in $DATA_ROOT/*.txt; do
     if [ -f "$source" ]; 
     then 
         echo "${source} -> ${DATA_ROOT}/${fbname}.[py|sh]"
-        sed -n '/```python/,$p' "$source" | tail -n +2 | sed '/```/q' | ghead -n -1 \
+        sed -n '/```python/,$p' "$source" | tail -n +2 | sed '/```/q' | $HEAD -n -1 \
                          > $DATA_ROOT/${fbname}.py ;    
-        sed -n '/```bash/,$p' "$source" | tail -n +2 | sed '/```/q' | ghead -n -1 \
+        sed -n '/```bash/,$p' "$source" | tail -n +2 | sed '/```/q' | $HEAD -n -1 \
                          > $DATA_ROOT/${fbname}.sh ; 
     fi ; 
 done

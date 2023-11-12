@@ -1,23 +1,15 @@
 #!/bin/bash
-###
- # @Author: University of Illinois at Urbana Champaign
- # @Date: 2023-11-02 21:07:38
- # @LastEditTime: 2023-11-03 14:22:32
- # @FilePath: /platforms/client/run_grader.sh
- # @Description: 
-### 
-
 # Make sure we have exactly one argument
-if [ "$#" -ne 1 ]; then
+if [ "$#" -ne 2 ]; then
     echo "Usage: $0 config"
     exit 1
 fi
 
 config="$1"
-
+gpt_result_directory="$2"
 # Define directories based on the config parameter
 expected_result_directory="/platform/expected/s01"
-gpt_generated_source_code_directory="/platform/source/s01/v1_9/m${config}"
+gpt_generated_source_code_directory="${gpt_result_directory}/m${config}"
 result_path="/platform/output/m${config}"
 grader_file="/grader.py"
 
