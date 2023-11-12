@@ -15,8 +15,8 @@ bash cloudlab/start-all.sh
 
 Loading TPC-H tables splitted among platforms.
 ```bash
-# ... <TPC-H data directory> <MySQL tables> <MongoDB tables>
-bash cloudlab/tpch_init.sh /tpch/s01 nation,lineitem,part region,supplier,partsupp,customer,orders
+# ... <TPC-H data directory> <MySQL tables> <MongoDB tables> <Redis tables>
+bash cloudlab/tpch_init.sh /tpch/s01 nation,lineitem,part region,supplier,partsupp,customer orders
 ```
 
 Clearing the cluster of platforms, including database data.
