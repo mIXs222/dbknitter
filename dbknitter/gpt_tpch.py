@@ -18,7 +18,7 @@ from dbknitter.tpch_queries import tpch_queries
 #openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
-os.environ['OPENAI_API_KEY'] = "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"
+os.environ['OPENAI_API_KEY'] = "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"
 Platforms = ["mysql", "mongodb"]
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -812,6 +812,9 @@ def main_batch(argv):
                 if not os.path.exists(output_directory):
                     os.makedirs(output_directory)
                 output_path = output_directory / f"m{midx}_q{qidx}_t{tidx}.txt"
+                if(os.path.exists(output_path)):
+                    print(f"{output_path} already exists. Skipping...")
+                    continue
                 gpt.call_chatgpt_api(query_prompt, output_path)
                 print(f"[{midx}, {qidx}, {tidx}] Written to {output_path}")
 
