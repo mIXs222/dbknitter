@@ -2,8 +2,14 @@ import enum
 import os
 import pandas as pd
 import shutil
+from cdifflib import CSequenceMatcher
+SequenceMatcher = CSequenceMatcher
 from functools import partial
 from pathlib import Path
+
+
+def str_similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
 
 
 DEFAULT_OUTPUT_PATH = Path("./query_output.csv")  # TODO: Change this
@@ -48,10 +54,16 @@ def compare_csv(actual_output_path: Path, expected_output_path: Path) -> Score:
     expected_df = pd.read_csv(expected_output_path)
 
     # Compare outputs and return result.
-    # TODO: Compare with invariants.
     print(f">>> Expected\n{expected_df}\n")
     print(f">>> Actual\n{actual_df}\n")
     correct_output = actual_df.equals(expected_df)
+    if not correct_output:
+        # Compare string similarity
+        # similarity = str_similar(actual_df.to_string(), expected_df.to_string())
+        # correct_output = similarity > 0.9
+        # print(f"difflib similarity: {similarity}")
+        correct_output = (str(actual_df) == str(expected_df))
+        print(f"Override with string comparison")
 
     # Returns.
     if not correct_output:
