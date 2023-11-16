@@ -1,0 +1,82 @@
+uid, chatcmpl-8LJo2mwDAppi8fyemPGT6rqqGMCx7
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: nation, supplier, customer, orders, lineitem\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use 'direct_redis' to read Pandas DataFrame using get('tablename').\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    SUPP_NATION,\n    CUST_NATION,\n    L_YEAR,\n    SUM(VOLUME) AS REVENUE\nFROM\n    (\n    SELECT\n        N1.N_NAME AS SUPP_NATION,\n        N2.N_NAME AS CUST_NATION,\n        strftime('%Y', L_SHIPDATE) AS L_YEAR,\n        L_EXTENDEDPRICE * (1 - L_DISCOUNT) AS VOLUME\n    FROM\n        supplier,\n        lineitem,\n        orders,\n        customer,\n        nation n1,\n        nation n2\n    WHERE\n        S_SUPPKEY = L_SUPPKEY\n        AND O_ORDERKEY = L_ORDERKEY\n        AND C_CUSTKEY = O_CUSTKEY\n        AND S_NATIONKEY = N1.N_NATIONKEY\n        AND C_NATIONKEY = N2.N_NATIONKEY\n        AND (\n            (N1.N_NAME = 'JAPAN' AND N2.N_NAME = 'INDIA')\n            OR (N1.N_NAME = 'INDIA' AND N2.N_NAME = 'JAPAN')\n            )\n        AND L_SHIPDATE BETWEEN '1995-01-01' AND '1996-12-31'\n    ) AS SHIPPING\nGROUP BY\n    SUPP_NATION,\n    CUST_NATION,\n    L_YEAR\nORDER BY\n    SUPP_NATION,\n    CUST_NATION,\n    L_YEAR\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 37.78682589530945
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, **File 1: Dependencies.sh**
+
+```bash
+#!/bin/bash
+
+# Update the system
+apt-get update -y
+apt-get upgrade -y
+
+# Install Python and Pip
+apt-get install python3.8 -y
+apt-get install python3-pip -y
+
+# Install necessary libraries
+pip3 install pandas
+pip3 install redis
+pip3 install python-dateutil
+```
+-------------------------
+**File 2: Query.py**
+
+```python
+import pandas as pd
+import redis
+from dateutil.parser import parse 
+
+# Define table schemas
+TABLES = {
+    'nation': ['N_NATIONKEY', 'N_NAME', 'N_REGIONKEY', 'N_COMMENT'],
+    'supplier': ['S_SUPPKEY', 'S_NAME', 'S_ADDRESS', 'S_NATIONKEY', 'S_PHONE', 'S_ACCTBAL', 'S_COMMENT'],
+    'customer': ['C_CUSTKEY', 'C_NAME', 'C_ADDRESS', 'C_NATIONKEY', 'C_PHONE', 'C_ACCTBAL', 'C_MKTSEGMENT', 'C_COMMENT'],
+    'orders': ['O_ORDERKEY', 'O_CUSTKEY', 'O_ORDERSTATUS', 'O_TOTALPRICE', 'O_ORDERDATE', 'O_ORDERPRIORITY', 'O_CLERK', 'O_SHIPPRIORITY', 'O_COMMENT'],
+    'lineitem': ['L_ORDERKEY', 'L_PARTKEY', 'L_SUPPKEY', 'L_LINENUMBER', 'L_QUANTITY', 'L_EXTENDEDPRICE', 'L_DISCOUNT', 'L_TAX', 'L_RETURNFLAG', 'L_LINESTATUS', 'L_SHIPDATE', 'L_COMMITDATE', 'L_RECEIPTDATE', 'L_SHIPINSTRUCT', 'L_SHIPMODE', 'L_COMMENT']
+}
+
+# Connect to Redis
+r = redis.Redis(host='redis', port=6379, db=0)
+
+# Load the data from Redis into Pandas DataFrames
+dfs = {table: pd.DataFrame(r.get(table), columns=schema) for table, schema in TABLES.items()}
+
+# Perform the join operations
+shipping = dfs['supplier'].merge(dfs['lineitem'], how='inner', left_on='S_SUPPKEY', right_on='L_SUPPKEY') \
+    .merge(dfs['orders'], how='inner', left_on='O_ORDERKEY', right_on='O_ORDERKEY') \
+    .merge(dfs['customer'], how='inner', left_on='C_CUSTKEY', right_on='O_CUSTKEY') \
+    .merge(dfs['nation'], how='inner', left_on='S_NATIONKEY', right_on='N_NATIONKEY', suffixes=('', '_supplier')) \
+    .merge(dfs['nation'], how='inner', left_on='C_NATIONKEY', right_on='N_NATIONKEY', suffixes=('_supplier', '_customer'))
+
+# Add new columns
+shipping['SUPP_NATION'] = shipping['N_NAME_supplier']
+shipping['CUST_NATION'] = shipping['N_NAME_customer']
+shipping['L_YEAR'] = shipping['L_SHIPDATE'].apply(lambda x: parse(x).year)
+shipping['VOLUME'] = shipping['L_EXTENDEDPRICE'] * (1 - shipping['L_DISCOUNT'])
+
+# Filter the data
+shipping = shipping[(shipping['SUPP_NATION'].isin(['JAPAN', 'INDIA'])) & (shipping['CUST_NATION'].isin(['JAPAN', 'INDIA'])) &
+                    (shipping['L_SHIPDATE'].between('1995-01-01', '1996-12-31'))]
+
+# Group the data
+shipment = shipping.groupby(['SUPP_NATION', 'CUST_NATION', 'L_YEAR']).sum().reset_index()
+
+# Sort the data
+shipment = shipment.sort_values(by=['SUPP_NATION', 'CUST_NATION', 'L_YEAR'])
+
+# Write the data to a csv file
+shipment.to_csv('query_output.csv', index=False)
+```
+
+This script connects to a Redis database, reads the data into pandas DataFrame objects, performs the necessary join, filter, group by, and sorting operations according to the given SQL query, and finally writes the results to a csv file.
+created_time, 1700091714
+completion_tokens, 874
+prompt_tokens, 717
+total_tokens, 1591

@@ -1,0 +1,69 @@
+uid, chatcmpl-8LJnT0LWAFEupcDWy80eMa1ffvmdF
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: nation, region, supplier, customer, orders, lineitem\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use 'direct_redis' to read Pandas DataFrame using get('tablename').\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    N_NAME,\n    SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS REVENUE\nFROM\n    customer,\n    orders,\n    lineitem,\n    supplier,\n    nation,\n    region\nWHERE\n    C_CUSTKEY = O_CUSTKEY\n    AND L_ORDERKEY = O_ORDERKEY\n    AND L_SUPPKEY = S_SUPPKEY\n    AND C_NATIONKEY = S_NATIONKEY\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_REGIONKEY = R_REGIONKEY\n    AND R_NAME = 'ASIA'\n    AND O_ORDERDATE >= '1990-01-01'\n    AND O_ORDERDATE < '1995-01-01'\nGROUP BY\n    N_NAME\nORDER BY\n    REVENUE DESC\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 20.992199897766113
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, 1. Python Code (query.py)
+
+```python
+import pandas as pd
+import redis
+import json
+from datetime import datetime
+from pandas.io.json import json_normalize
+
+# Connect to redis
+r = redis.Redis(host='redis', port=6379, db=0)
+
+# Get tables from redis
+tables = ['nation', 'region', 'supplier', 'customer', 'orders', 'lineitem']
+df_tables = {}
+for table in tables:
+    data = json.loads(r.get(table))
+    df_tables[table] = json_normalize(data)
+
+# Rename keys to remove prefix
+for key, df in df_tables.items():
+    df.columns = df.columns.str.replace(f"{key.upper()}_", "")
+
+# Type casting for orders
+df_tables['orders']['O_ORDERDATE'] = pd.to_datetime(df_tables['orders']['O_ORDERDATE'])
+
+# Query
+result = (
+    df_tables['customer']
+    .merge(df_tables['orders'], left_on='C_CUSTKEY', right_on='O_CUSTKEY')
+    .merge(df_tables['lineitem'], left_on='O_ORDERKEY', right_on='L_ORDERKEY')
+    .merge(df_tables['supplier'], left_on=['C_NATIONKEY', 'L_SUPPKEY'], right_on=['S_NATIONKEY', 'S_SUPPKEY'])
+    .merge(df_tables['nation'], left_on='S_NATIONKEY', right_on='N_NATIONKEY')
+    .merge(df_tables['region'], left_on='N_REGIONKEY', right_on='R_REGIONKEY')
+    .loc[lambda x: 
+        (x['R_NAME'] == 'ASIA') & 
+        (x['O_ORDERDATE'] >= datetime.strptime('1990-01-01', '%Y-%m-%d')) & 
+        (x['O_ORDERDATE'] < datetime.strptime('1995-01-01', '%Y-%m-%d'))
+    ]
+    .assign(REVENUE=lambda x: x['L_EXTENDEDPRICE'] * (1 - x['L_DISCOUNT']))
+    .groupby('N_NAME')['REVENUE']
+    .sum()
+    .sort_values(ascending=False)
+    .reset_index()
+)
+
+# Output result
+result.to_csv('query_output.csv', index=False)
+```
+2. Bash Script (install.sh)
+
+```bash
+#!/bin/bash
+pip install pandas redis
+```
+Cut the content here and save it as "install.sh". Afterward, in the command-line, type: "chmod +x install.sh" to make it an executable file. Then "./install.sh" will install the necessary components.
+created_time, 1700091679
+completion_tokens, 532
+prompt_tokens, 605
+total_tokens, 1137

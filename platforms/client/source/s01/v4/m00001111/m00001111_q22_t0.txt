@@ -1,0 +1,103 @@
+uid, chatcmpl-8LKeImXs51PjFFH25KfbT2VK5ZIy4
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer, orders\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    CNTRYCODE,\n    COUNT(*) AS NUMCUST,\n    SUM(C_ACCTBAL) AS TOTACCTBAL\nFROM\n    (\n    SELECT\n        SUBSTR(C_PHONE, 1 , 2) AS CNTRYCODE,\n        C_ACCTBAL\n    FROM\n        customer\n    WHERE\n        SUBSTR(C_PHONE , 1 , 2) IN\n        ('20', '40', '22', '30', '39', '42', '21')\n    AND C_ACCTBAL > (\n            SELECT\n                AVG(C_ACCTBAL)\n            FROM\n                customer\n            WHERE\n                C_ACCTBAL > 0.00\n            AND SUBSTR(C_PHONE , 1 , 2) IN\n            ('20', '40', '22', '30', '39', '42', '21')\n    )\n    AND NOT EXISTS (\n        SELECT\n            *\n        FROM\n            orders\n        WHERE\n            O_CUSTKEY = C_CUSTKEY\n        )\n    ) AS CUSTSALE\nGROUP BY\n    CNTRYCODE\nORDER BY\n    CNTRYCODE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 17.755027770996094
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Here is the Python code `query_code.py` to execute the given query logic across a MongoDB database:
+```python
+from pymongo import MongoClient
+import csv
+
+# MongoDB connection setup
+client = MongoClient('mongodb', 27017)
+db = client['tpch']
+customers = db['customer']
+orders = db['orders']
+
+# Helper function to calculate average account balance
+def calculate_avg_acct_balance():
+    match_stage = {
+        "$match": {
+            "C_ACCTBAL": {"$gt": 0.00},
+            "C_PHONE": {"$regex": r'^(20|40|22|30|39|42|21)'}
+        }
+    }
+    group_stage = {
+        "$group": {
+            "_id": None,
+            "average_balance": {"$avg": "$C_ACCTBAL"}
+        }
+    }
+    result = list(customers.aggregate([match_stage, group_stage]))
+    return result[0]['average_balance'] if result else 0
+
+# Calculate average account balance
+average_balance = calculate_avg_acct_balance()
+
+# Aggregation pipeline to get the desired output
+pipeline = [
+    {"$match": {
+        "C_PHONE": {"$regex": r'^(20|40|22|30|39|42|21)'},
+        "C_ACCTBAL": {"$gt": average_balance}
+    }},
+    {"$lookup": {
+        "from": "orders",
+        "localField": "C_CUSTKEY",
+        "foreignField": "O_CUSTKEY",
+        "as": "customer_orders"
+    }},
+    {"$match": {"customer_orders": {"$size": 0}}},
+    {"$project": {
+        "CNTRYCODE": {"$substr": ["$C_PHONE", 0, 2]},
+        "C_ACCTBAL": 1,
+        "_id": 0
+    }},
+    {"$group": {
+        "_id": "$CNTRYCODE",
+        "NUMCUST": {"$sum": 1},
+        "TOTACCTBAL": {"$sum": "$C_ACCTBAL"}
+    }},
+    {"$sort": {"_id": 1}}
+]
+
+# Execute the aggregation pipeline
+results = customers.aggregate(pipeline)
+
+# Open the CSV file and write the output
+with open('query_output.csv', 'w', newline='') as csvfile:
+    fieldnames = ['CNTRYCODE', 'NUMCUST', 'TOTACCTBAL']
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+    # Write header
+    writer.writeheader()
+
+    # Write data rows
+    for result in results:
+        writer.writerow({
+            'CNTRYCODE': result['_id'],
+            'NUMCUST': result['NUMCUST'],
+            'TOTACCTBAL': result['TOTACCTBAL']
+        })
+```
+
+2. Here is the Bash script `install_dependencies.sh` to install all dependencies required to run the above Python code:
+```sh
+#!/bin/bash
+
+# Update package list
+apt-get update
+
+# Install pip if not installed
+apt-get install -y python3-pip
+
+# Install pymongo to interact with MongoDB
+pip3 install pymongo
+```
+created_time, 1700094954
+completion_tokens, 659
+prompt_tokens, 526
+total_tokens, 1185

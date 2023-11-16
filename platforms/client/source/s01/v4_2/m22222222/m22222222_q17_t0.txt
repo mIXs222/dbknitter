@@ -1,0 +1,88 @@
+uid, chatcmpl-8LJrYFocPHCsT79YYllV4lvAt1T7p
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: part, lineitem\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use 'direct_redis' to read Pandas DataFrame using get('tablename').\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    SUM(L_EXTENDEDPRICE) / 7.0 AS AVG_YEARLY\nFROM\n    lineitem,\n    part\nWHERE\n    P_PARTKEY = L_PARTKEY\n    AND P_BRAND = 'Brand#23'\n    AND P_CONTAINER = 'MED BAG'\n    AND L_QUANTITY < (\n        SELECT\n            0.2 * AVG(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = P_PARTKEY\n    )\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 21.60509204864502
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, 1. Python Code (.py):
+
+```python
+import redis
+import pandas as pd
+import os
+from pandasql import sqldf
+
+#Function to run sql on pandas dataframe
+pysqldf = lambda q: sqldf(q, globals())
+
+redis_host = "redis"
+redis_port = 6379
+redis_password = ""
+try:
+    r = redis.StrictRedis(host=redis_host, port=redis_port, password=redis_password, decode_responses=True)
+
+    # Read data from redis
+    part = r.get('part')
+    lineitem = r.get('lineitem')
+
+    part_df = pd.read_json(part)
+    lineitem_df = pd.read_json(lineitem)
+    
+    # Register these tables in the local scope
+    locals().update({'part': part_df, 'lineitem': lineitem_df})
+    
+    # SQL Query
+    sql="""
+    SELECT
+         SUM(L_EXTENDEDPRICE)/7.0 as AVG_YEARLY
+    FROM
+         lineitem
+    JOIN 
+         part
+    ON    
+        P_PARTKEY = L_PARTKEY
+    WHERE
+        P_BRAND = 'Brand#23'
+        AND P_CONTAINER = 'MED BAG'
+        AND L_QUANTITY < (
+             SELECT
+                 0.2*AVG(L_QUANTITY)
+             FROM 
+                 lineitem
+             WHERE 
+                 L_PARTKEY = P_PARTKEY
+                  )
+    """
+  
+    # Execute SQL on Pandas DataFrame
+    result = pysqldf(sql)
+    result.to_csv("query_output.csv", index=False)
+  
+except Exception as e:
+    print(e)
+```
+
+2. Bash Script (.sh) to install all the dependencies to run the provided Python code:
+
+```bash
+echo "Installing python ..."
+sudo apt update
+sudo apt install python3.8
+
+echo "Installing pip, python's package manager ..."
+sudo apt install python3-pip
+
+echo "Installing necessary python packages ..."
+pip3 install redis
+pip3 install pandas
+pip3 install pandasql
+```
+This script installs Python 3.8, pip (Python's package manager), and the required Python libraries including Redis, Pandas and pandasql.
+
+created_time, 1700091932
+completion_tokens, 447
+prompt_tokens, 428
+total_tokens, 875

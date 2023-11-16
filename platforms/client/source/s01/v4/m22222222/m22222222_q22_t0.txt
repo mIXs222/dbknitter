@@ -1,0 +1,61 @@
+uid, chatcmpl-8LKraRtzv8riiWXVhqUpMowZe4N0T
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    CNTRYCODE,\n    COUNT(*) AS NUMCUST,\n    SUM(C_ACCTBAL) AS TOTACCTBAL\nFROM\n    (\n    SELECT\n        SUBSTR(C_PHONE, 1 , 2) AS CNTRYCODE,\n        C_ACCTBAL\n    FROM\n        customer\n    WHERE\n        SUBSTR(C_PHONE , 1 , 2) IN\n        ('20', '40', '22', '30', '39', '42', '21')\n    AND C_ACCTBAL > (\n            SELECT\n                AVG(C_ACCTBAL)\n            FROM\n                customer\n            WHERE\n                C_ACCTBAL > 0.00\n            AND SUBSTR(C_PHONE , 1 , 2) IN\n            ('20', '40', '22', '30', '39', '42', '21')\n    )\n    AND NOT EXISTS (\n        SELECT\n            *\n        FROM\n            orders\n        WHERE\n            O_CUSTKEY = C_CUSTKEY\n        )\n    ) AS CUSTSALE\nGROUP BY\n    CNTRYCODE\nORDER BY\n    CNTRYCODE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 11.203244924545288
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (query.py):
+
+```python
+import pandas as pd
+import direct_redis
+
+def query_redis():
+    # Connection to Redis
+    r = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+    # Get DataFrames from Redis
+    df_customer_raw = pd.read_json(r.get('customer'), orient='records')
+    df_orders_raw = pd.read_json(r.get('orders'), orient='records')
+
+    # Data transformation as per SQL query
+    df_customer = df_customer_raw.copy()
+    df_customer['CNTRYCODE'] = df_customer['C_PHONE'].str[:2]
+    df_orders = df_orders_raw.copy()
+
+    # Filtering customers
+    countries = ('20', '40', '22', '30', '39', '42', '21')
+    df_customer = df_customer[df_customer['CNTRYCODE'].isin(countries)]
+
+    # Calculate average account balance
+    avg_acctbal = df_customer[df_customer['C_ACCTBAL'] > 0]['C_ACCTBAL'].mean()
+    df_customer = df_customer[df_customer['C_ACCTBAL'] > avg_acctbal]
+
+    # Ensure customers have no orders
+    df_customer = df_customer[~df_customer['C_CUSTKEY'].isin(df_orders['O_CUSTKEY'])]
+
+    # Aggregate by country code
+    result = df_customer.groupby('CNTRYCODE').agg(NUMCUST=('C_CUSTKEY', 'count'), TOTACCTBAL=('C_ACCTBAL', 'sum'))
+
+    # Write to CSV
+    result.reset_index().to_csv('query_output.csv', index=False)
+
+if __name__ == '__main__':
+    query_redis()
+```
+
+And here is the Bash script to handle the installation of dependencies (install.sh):
+
+```bash
+#!/bin/bash
+
+pip install pandas
+pip install direct_redis
+```
+created_time, 1700095778
+completion_tokens, 386
+prompt_tokens, 540
+total_tokens, 926

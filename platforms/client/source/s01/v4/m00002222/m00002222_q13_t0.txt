@@ -1,0 +1,82 @@
+uid, chatcmpl-8LL2V2YABHJUZuY44FgjRv1Naaezi
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    C_COUNT,\n    COUNT(*) AS CUSTDIST\nFROM\n    (\n    SELECT\n        C_CUSTKEY,\n        COUNT(O_ORDERKEY) AS C_COUNT\n    FROM\n        customer LEFT OUTER JOIN orders ON\n        C_CUSTKEY = O_CUSTKEY\n        AND O_COMMENT NOT LIKE '%pending%deposits%'\n    GROUP BY\n        C_CUSTKEY\n    )   C_ORDERS\nGROUP BY\n    C_COUNT\nORDER BY\n    CUSTDIST DESC,\n    C_COUNT DESC\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 15.113018274307251
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code that you can save as `execute_query.py`:
+
+```python
+import pandas as pd
+from direct_redis import DirectRedis
+
+def connect_to_redis(hostname, port, db_name):
+    return DirectRedis(host=hostname, port=port, db=db_name)
+    
+def fetch_data_from_redis(redis_connection, table_name):
+    data_str = redis_connection.get(table_name)
+    if data_str:
+        data_df = pd.read_json(data_str, orient='records')
+        return data_df
+    return None
+
+def main():
+    # Connect to Redis
+    redis_conn = connect_to_redis('redis', 6379, '0')
+
+    # Fetch data from Redis
+    customer_df = fetch_data_from_redis(redis_conn, 'customer')
+    orders_df = fetch_data_from_redis(redis_conn, 'orders')
+
+    # Filtering orders without 'pending%deposits' in comments
+    orders_filtered_df = orders_df[~orders_df['O_COMMENT'].str.contains('pending%deposits', regex=False)]
+
+    # Perform LEFT OUTER JOIN
+    merged_df = pd.merge(customer_df, orders_filtered_df, how='left', left_on='C_CUSTKEY', right_on='O_CUSTKEY')
+    
+    # Group by C_CUSTKEY and count the number of orders for each customer
+    customer_order_count = merged_df.groupby('C_CUSTKEY')['O_ORDERKEY'].count().reset_index(name='C_COUNT')
+    
+    # Group by C_COUNT and count the number of customers for each count of orders
+    count_distribution = customer_order_count.groupby('C_COUNT')['C_CUSTKEY'].count().reset_index(name='CUSTDIST')
+
+    # Sort the results
+    count_distribution_sorted = count_distribution.sort_values(by=['CUSTDIST', 'C_COUNT'], ascending=[False, False])
+
+    # Output to CSV
+    count_distribution_sorted.to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    main()
+```
+
+Next is the Bash script you can save as `setup.sh`:
+
+```bash
+#!/bin/bash
+
+# Create a virtual environment
+python3 -m venv venv
+
+# Activate the virtual environment
+source venv/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install dependencies
+pip install pandas redis direct-redis
+
+# The bash script ends here. After running this script, run `python execute_query.py`
+# to execute the query and write the output to query_output.csv
+```
+
+To execute the bash script, you may need to give it permission to run using `chmod +x setup.sh`, and then execute it using `./setup.sh`. After running the bash script, you can execute the Python script with `python execute_query.py` to get the query output.
+
+created_time, 1700096455
+completion_tokens, 571
+prompt_tokens, 413
+total_tokens, 984

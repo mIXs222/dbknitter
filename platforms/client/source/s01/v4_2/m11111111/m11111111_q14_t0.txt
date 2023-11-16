@@ -1,0 +1,67 @@
+uid, chatcmpl-8LJ6lhTn8GHzMclzuZQDDagVHJprH
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: part, lineitem\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    100.00 * SUM(CASE WHEN P_TYPE LIKE 'PROMO%' THEN L_EXTENDEDPRICE * (1 - L_DISCOUNT)\n    ELSE 0\n    END) / SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS PROMO_REVENUE\nFROM\n    lineitem,\n    part\nWHERE\n    L_PARTKEY = P_PARTKEY\n    AND L_SHIPDATE >= '1995-09-01'\n    AND L_SHIPDATE < '1995-10-01'\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 18.806846857070923
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, 1. Python Code:
+
+```python
+from datetime import datetime
+from pymongo import MongoClient
+import pandas as pd
+
+def calculate_promo_revenue(part_df, lineitem_df):
+
+    merged_df = pd.merge(lineitem_df, part_df, left_on='L_PARTKEY', right_on='P_PARTKEY')
+
+    merged_df['L_SHIPDATE'] = pd.to_datetime(merged_df['L_SHIPDATE'])
+    condition_shipdate = ((merged_df['L_SHIPDATE'] >= '1995-09-01') & (merged_df['L_SHIPDATE'] < '1995-10-01'))
+
+    merged_df['DISCOUNT_PRICE'] = merged_df['L_EXTENDEDPRICE'] * (1 - merged_df['L_DISCOUNT'])
+    merged_df.loc[merged_df['P_TYPE'].str.startswith("PROMO"), 'PROMO_DISCOUNT'] = merged_df['DISCOUNT_PRICE']
+    merged_df['PROMO_DISCOUNT'].fillna(0, inplace=True)
+
+    promo_revenue = (merged_df['PROMO_DISCOUNT'].sum() / merged_df['DISCOUNT_PRICE'].sum()) * 100.00
+
+    result_df = pd.DataFrame(columns=['PROMO_REVENUE'])
+    result_df = result_df.append({'PROMO_REVENUE' : promo_revenue}, ignore_index=True)
+    result_df.to_csv("query_output.csv", index=False)
+
+client = MongoClient("mongodb", 27017)
+db = client['tpch']
+
+part_data = list(db['part'].find())
+lineitem_data = list(db['lineitem'].find())
+
+part_df = pd.DataFrame(part_data)
+lineitem_df = pd.DataFrame(lineitem_data)
+
+calculate_promo_revenue(part_df, lineitem_df)
+
+```
+
+
+2. Bash Script:
+```bash
+#!/bin/bash
+
+# Update repository resources
+sudo apt-get update
+
+# Install Python3 pip
+sudo apt-get install python3-pip
+
+# Install pymongo
+pip3 install pymongo
+
+# Install pandas
+pip3 install pandas
+```
+created_time, 1700089031
+completion_tokens, 416
+prompt_tokens, 434
+total_tokens, 850

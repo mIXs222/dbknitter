@@ -34,7 +34,7 @@ if [ ${MONGODB_TABLES} != "-" ]; then
     echo ""
 fi
 
-if [ ${MONGODB_TABLES} != "-" ]; then
+if [ ${REDIS_TABLES} != "-" ]; then
     echo "=========================================================="
     echo "Loading TPC-H to Redis..."
     docker-compose -f cloudlab/docker-compose.yml exec redis bash /scripts/tpch_init.sh ${DATA_ROOT} ${REDIS_TABLES}

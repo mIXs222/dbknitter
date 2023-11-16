@@ -1,0 +1,83 @@
+uid, chatcmpl-8LJ8oSwFi1WIxUTvxgh2jvbdRcu87
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: nation, part, supplier, partsupp, lineitem\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    S_NAME,\n    S_ADDRESS\nFROM\n    supplier,\n    nation\nWHERE\n    S_SUPPKEY IN (\n    SELECT\n        PS_SUPPKEY\n    FROM\n        partsupp\n    WHERE\n    PS_PARTKEY IN (\n        SELECT\n            P_PARTKEY\n        FROM\n            part\n        WHERE\n            P_NAME LIKE 'forest%'\n    )\n    AND PS_AVAILQTY > (\n        SELECT\n            0.5 * SUM(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = PS_PARTKEY\n        AND L_SUPPKEY = PS_SUPPKEY\n        AND L_SHIPDATE >= '1994-01-01'\n        AND L_SHIPDATE < '1995-01-01'\n        )\n    )\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_NAME = 'CANADA'\nORDER BY\n    S_NAME\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 24.388225078582764
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, 1. Python Code (query.py):
+
+```python
+import csv
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure
+
+client = MongoClient('mongodb', 27017)
+
+try:
+    client.admin.command('ismaster')
+except ConnectionFailure:
+    print('Server not available')
+
+db = client['tpch']
+
+def write_to_csv(data):
+    with open('query_output.csv', 'w', encoding='utf8', newline='') as output_file:
+        fc = csv.DictWriter(output_file, 
+                            fieldnames=data[0].keys(),
+                            )
+        fc.writeheader()
+        fc.writerows(data)
+
+# subquery for part
+parts = list(db.part.find({'P_NAME': {'$regex': "forest"}}))
+
+# subquery for lineitem
+lineitems = list(db.lineitem.aggregate([
+    {"$match": {"L_SHIPDATE": {"$gte": '1994-01-01', "$lt": '1995-01-01'}}},
+    {"$group": 
+        {"_id": {"partkey": "$L_PARTKEY", "suppkey": "$L_SUPPKEY"}, 
+         "qty": {"$sum": "$L_QUANTITY"}}}
+]))
+
+# main query for supplier and nation
+suppliers = list(db.supplier.find({"S_NATIONKEY": {"$eq": db.nation.find_one({"N_NAME": "CANADA"})["N_NATIONKEY"]}}))
+
+# filter results
+results = []
+for supplier in suppliers:
+    for part in parts:
+        for lineitem in lineitems:
+            if supplier["S_SUPPKEY"] in [p['PS_SUPPKEY'] for p in db.partsupp.find({"PS_PARTKEY": part['P_PARTKEY'], "PS_AVAILQTY": {"$gt": lineitem["qty"]*0.5}})]:
+                results.append({"S_NAME": supplier["S_NAME"], "S_ADDRESS": supplier["S_ADDRESS"] })
+
+results.sort(key=lambda x: x["S_NAME"])
+write_to_csv(results)
+```
+
+2. Bash Script (install.sh)
+```bash
+#!/bin/bash
+
+#Update packages
+sudo apt-get update
+
+# Install Python and pip
+sudo apt install -y python3.8 python3-pip
+
+# Install necessary Python packages
+pip3 install pymongo
+pip3 install dnspython
+```
+
+Please note some assumptions:
+1. The LIKE operator from SQL is converted to a regular expression pattern in MongoDB, thus may not function identically.
+2. The interpretation of L_SHIPDATE as a string in pymongo, might produce inconsistent results with a date typed L_SHIPDATE field in SQL.
+3. For installing the dependencies, `apt` package manager is used, assuming a Debian-based linux system. Different systems might require different set of commands for the installation.
+4. Python 3.8 is specifically installed and used here. Different versions of Python might work as well. However, this might need slight modifications based on the specific version.
+created_time, 1700089158
+completion_tokens, 612
+prompt_tokens, 600
+total_tokens, 1212

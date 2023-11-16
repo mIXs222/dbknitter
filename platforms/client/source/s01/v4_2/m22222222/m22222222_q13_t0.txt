@@ -1,0 +1,58 @@
+uid, chatcmpl-8LJqWC4jdNexux03Ex8DZrEkHw9ET
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use 'direct_redis' to read Pandas DataFrame using get('tablename').\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    C_COUNT,\n    COUNT(*) AS CUSTDIST\nFROM\n    (\n    SELECT\n        C_CUSTKEY,\n        COUNT(O_ORDERKEY) AS C_COUNT\n    FROM\n        customer LEFT OUTER JOIN orders ON\n        C_CUSTKEY = O_CUSTKEY\n        AND O_COMMENT NOT LIKE '%pending%deposits%'\n    GROUP BY\n        C_CUSTKEY\n    )   C_ORDERS\nGROUP BY\n    C_COUNT\nORDER BY\n    CUSTDIST DESC,\n    C_COUNT DESC\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 14.26854419708252
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, 1. Python Code (main.py):
+
+```python
+import pandas as pd
+import redis
+from io import StringIO
+
+def connect_to_redis():
+    r = redis.Redis(host='redis', port=6379, db=0)
+    return r
+
+def get_df_from_redis(r, table_name):
+    data = r.get(table_name)
+    df = pd.read_csv(StringIO(data.decode('utf-8')))
+    return df
+
+def execute_query():
+    r = connect_to_redis()
+
+    customer_df = get_df_from_redis(r, "customer")
+    orders_df = get_df_from_redis(r, "orders")
+
+    merged_df = pd.merge(customer_df, orders_df, how='left', left_on='C_CUSTKEY', right_on='O_CUSTKEY')
+    merged_df['O_COMMENT_mod'] = merged_df['O_COMMENT'].apply(lambda x: 1 if 'pending' in x and 'deposits' in x else 0)
+
+    c_orders_df = merged_df.groupby('C_CUSTKEY').agg(C_COUNT=('O_ORDERKEY', 'count')).reset_index()
+
+    final_df = c_orders_df.groupby('C_COUNT').agg(CUSTDIST=('C_CUSTKEY', 'count')).reset_index()
+
+    final_df.sort_values(by=['CUSTDIST', 'C_COUNT'], ascending=[False, False], inplace=True)
+    
+    final_df.to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    execute_query()
+```
+
+2. Bash Script (setup.sh):
+
+```bash
+#!/bin/bash
+pip install pandas
+pip install redis
+```
+Please note that Python and pip must be installed in the system to run this script. And you need to run the setup script with administrative privileges, as it installs Python packages which will be global.
+created_time, 1700091868
+completion_tokens, 368
+prompt_tokens, 402
+total_tokens, 770

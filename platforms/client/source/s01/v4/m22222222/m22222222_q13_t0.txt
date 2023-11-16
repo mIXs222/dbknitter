@@ -1,0 +1,67 @@
+uid, chatcmpl-8LKosUXbLMw8ZFkt9UcTvYrC4NbCR
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    C_COUNT,\n    COUNT(*) AS CUSTDIST\nFROM\n    (\n    SELECT\n        C_CUSTKEY,\n        COUNT(O_ORDERKEY) AS C_COUNT\n    FROM\n        customer LEFT OUTER JOIN orders ON\n        C_CUSTKEY = O_CUSTKEY\n        AND O_COMMENT NOT LIKE '%pending%deposits%'\n    GROUP BY\n        C_CUSTKEY\n    )   C_ORDERS\nGROUP BY\n    C_COUNT\nORDER BY\n    CUSTDIST DESC,\n    C_COUNT DESC\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 12.946483135223389
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code to mimic the SQL query and handle data from Redis:
+
+```python
+import pandas as pd
+from direct_redis import DirectRedis
+
+def execute_query_and_write_to_csv():
+    # Establish connection to Redis
+    r = DirectRedis(host='redis', port=6379, db=0)
+
+    # Retrieve data from Redis
+    customer_df = pd.read_json(r.get('customer'))
+    orders_df = pd.read_json(r.get('orders'))
+
+    # Perform left outer join
+    merged_df = pd.merge(customer_df, orders_df, left_on='C_CUSTKEY', right_on='O_CUSTKEY', how='left')
+
+    # Filter out orders with 'pending%deposits' in O_COMMENT
+    merged_df = merged_df[~merged_df.O_COMMENT.str.contains('pending%deposits%', na=False)]
+
+    # Compute C_COUNT
+    c_orders_df = merged_df.groupby('C_CUSTKEY')['O_ORDERKEY'].count().reset_index(name='C_COUNT')
+
+    # Compute CUSTDIST
+    custdist_df = c_orders_df.groupby('C_COUNT')['C_CUSTKEY'].count().reset_index(name='CUSTDIST')
+
+    # Sort by CUSTDIST DESC, C_COUNT DESC
+    custdist_df = custdist_df.sort_values(by=['CUSTDIST', 'C_COUNT'], ascending=[False, False])
+
+    # Write result to CSV
+    custdist_df.to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    execute_query_and_write_to_csv()
+```
+
+And here is the Bash script to install all the necessary dependencies to run the Python code:
+
+```bash
+#!/bin/bash
+
+# Update package list and install pip for Python3
+sudo apt-get update
+sudo apt-get install -y python3-pip
+
+# Create a virtual environment for the Python project (optional but recommended)
+python3 -m pip install --user virtualenv
+python3 -m venv env
+source env/bin/activate
+
+# Install necessary Python packages
+pip install pandas
+pip install direct_redis
+```
+created_time, 1700095610
+completion_tokens, 428
+prompt_tokens, 413
+total_tokens, 841

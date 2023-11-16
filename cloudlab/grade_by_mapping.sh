@@ -35,6 +35,11 @@ output_dir="grade_output/${VERSION_DIR}/m${MAPPING_STR}"
 mkdir -p ${output_dir}
 
 # Start up
+mkdir -p platforms/client/source platforms/client/output platforms/client/expected && \
+    docker build -t client-image -f cloudlab/client/Dockerfile . && \
+    docker build -t mysql-image -f cloudlab/mysql/Dockerfile . && \
+    docker build -t mongodb-image -f cloudlab/mongodb/Dockerfile . && \
+    docker build -t redis-image -f cloudlab/redis/Dockerfile .
 bash cloudlab/start-all.sh > ${output_dir}/docker.stdout 2> ${output_dir}/docker.stderr &
 docker_pid=$!
 echo "Starting Docker containers (PID= ${docker_pid})"
@@ -47,7 +52,7 @@ echo "Loaded TPC-H tables"
 
 # Grade
 (docker-compose -f cloudlab/docker-compose.yml exec client bash platform/run_grader.sh ${MAPPING_STR} ${VERSION_DIR}) | tee ${output_dir}/m${MAPPING_STR}.txt 
-echo "Graded all sources"
+echo "Graded all sources, result at ${output_dir}/m${MAPPING_STR}.txt"
 
 # Stop docker
 kill ${docker_pid}

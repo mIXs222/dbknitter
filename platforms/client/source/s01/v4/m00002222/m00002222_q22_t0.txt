@@ -1,0 +1,91 @@
+uid, chatcmpl-8LL5SmI0xf2IOhMJISaVhvHkvqCQ7
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    CNTRYCODE,\n    COUNT(*) AS NUMCUST,\n    SUM(C_ACCTBAL) AS TOTACCTBAL\nFROM\n    (\n    SELECT\n        SUBSTR(C_PHONE, 1 , 2) AS CNTRYCODE,\n        C_ACCTBAL\n    FROM\n        customer\n    WHERE\n        SUBSTR(C_PHONE , 1 , 2) IN\n        ('20', '40', '22', '30', '39', '42', '21')\n    AND C_ACCTBAL > (\n            SELECT\n                AVG(C_ACCTBAL)\n            FROM\n                customer\n            WHERE\n                C_ACCTBAL > 0.00\n            AND SUBSTR(C_PHONE , 1 , 2) IN\n            ('20', '40', '22', '30', '39', '42', '21')\n    )\n    AND NOT EXISTS (\n        SELECT\n            *\n        FROM\n            orders\n        WHERE\n            O_CUSTKEY = C_CUSTKEY\n        )\n    ) AS CUSTSALE\nGROUP BY\n    CNTRYCODE\nORDER BY\n    CNTRYCODE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 16.285644054412842
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (query_redis.py)
+```python
+import pandas as pd
+import direct_redis
+
+def execute_query():
+    # Make sure you have direct_redis available or installed
+    conn_info = {
+        'host': 'redis', 
+        'port': 6379, 
+        'db': 0
+    }
+    client = direct_redis.DirectRedis(**conn_info)
+
+    # Fetching tables from Redis
+    customer_df = client.get('customer')
+    orders_df = client.get('orders')
+
+    # Convert byte to pandas dataframe
+    customer_df = pd.read_msgpack(customer_df)
+    orders_df = pd.read_msgpack(orders_df)
+
+    # Query logic start
+    # Calculating average account balance from customers with positive balance
+    avg_acctbal = customer_df[customer_df['C_ACCTBAL'] > 0.00]['C_ACCTBAL'].mean()
+
+    # Filtering customers based on phone and account balance
+    customer_filtered = customer_df[
+        customer_df['C_PHONE'].str[:2].isin(['20', '40', '22', '30', '39', '42', '21']) &
+        (customer_df['C_ACCTBAL'] > avg_acctbal)
+    ]
+
+    # Finding customers with no orders
+    customer_no_orders = customer_filtered[
+        ~customer_filtered['C_CUSTKEY'].isin(orders_df['O_CUSTKEY'])
+    ]
+
+    # Adding CNTRYCODE column
+    customer_no_orders['CNTRYCODE'] = customer_no_orders['C_PHONE'].str[:2]
+
+    # Group by CNTRYCODE and perform aggregation 
+    result = customer_no_orders.groupby('CNTRYCODE').agg(
+        NUMCUST=('C_CUSTKEY', 'count'),
+        TOTACCTBAL=('C_ACCTBAL', 'sum')
+    ).reset_index()
+
+    # Sort result by CNTRYCODE
+    result = result.sort_values(by='CNTRYCODE')
+
+    # Query logic end
+
+    # Write output to CSV file
+    result.to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    execute_query()
+```
+
+2. Bash script (install_dependencies.sh)
+```bash
+#!/bin/bash
+
+# Update the package lists
+sudo apt-get update -y
+
+# Install Python3 and pip if not already installed
+sudo apt-get install python3 python3-pip -y
+
+# Install pandas and direct_redis within Python3
+pip3 install pandas
+pip3 install git+https://github.com/hmartinez/direct_redis
+
+# Make sure that the Python script has execution permissions
+chmod +x query_redis.py
+
+# Run the Python script
+python3 query_redis.py
+```
+created_time, 1700096638
+completion_tokens, 556
+prompt_tokens, 540
+total_tokens, 1096

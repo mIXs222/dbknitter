@@ -1,0 +1,72 @@
+uid, chatcmpl-8LJ7OhNaeXsujEAgajfDzApe6IbBn
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: part, supplier, partsupp\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    P_BRAND,\n    P_TYPE,\n    P_SIZE,\n    COUNT(DISTINCT PS_SUPPKEY) AS SUPPLIER_CNT\nFROM\n    partsupp,\n    part\nWHERE\n    P_PARTKEY = PS_PARTKEY\n    AND P_BRAND <> 'Brand#45'\n    AND P_TYPE NOT LIKE 'MEDIUM POLISHED%'\n    AND P_SIZE IN (49, 14, 23, 45, 19, 3, 36, 9)\n    AND PS_SUPPKEY NOT IN (\n        SELECT\n            S_SUPPKEY\n        FROM\n            supplier\n        WHERE\n            S_COMMENT LIKE '%Customer%Complaints%'\n    )\nGROUP BY\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\nORDER BY\n    SUPPLIER_CNT DESC,\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 21.595134973526
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, 1. Python code
+
+```python
+import pymongo
+import pandas as pd
+from pandas.io.json import json_normalize
+
+# Establish connection
+client = pymongo.MongoClient("mongodb://mongodb:27017")
+db = client["tpch"]
+
+# Load data from mongodb collections
+part_data = list(db["part"].find({}, {"_id":0}))
+supplier_data = list(db["supplier"].find({}, {"_id":0}))
+partsupp_data = list(db["partsupp"].find({}, {"_id":0}))
+
+# Convert data to pandas DataFrame
+df_part = pd.json_normalize(part_data)
+df_supplier = pd.json_normalize(supplier_data)
+df_partsupp = pd.json_normalize(partsupp_data)
+
+# Apply the filters and joins
+filtered_part = df_part[
+    (df_part['P_BRAND'] != 'Brand#45') & 
+    (~df_part['P_TYPE'].str.contains('MEDIUM POLISHED')) & 
+    (df_part['P_SIZE'].isin([49, 14, 23, 45, 19, 3, 36, 9]))
+]
+excluded_suppliers = df_supplier[df_supplier['S_COMMENT'].str.contains('Customer Complaints')]['S_SUPPKEY']
+filtered_partsupp = df_partsupp[~df_partsupp['PS_SUPPKEY'].isin(excluded_suppliers)]
+
+# Merge tables and group by
+df_merged = pd.merge(filtered_part, filtered_partsupp, how='inner', left_on='P_PARTKEY', right_on='PS_PARTKEY')
+result = df_merged.groupby(['P_BRAND','P_TYPE','P_SIZE']).agg(SUPPLIER_CNT=pd.NamedAgg(column='PS_SUPPKEY', aggfunc='nunique')).reset_index()
+
+# Sort and write to csv
+result_sorted = result.sort_values(by=['SUPPLIER_CNT','P_BRAND','P_TYPE','P_SIZE'], ascending=[False, True, True, True])
+result_sorted.to_csv('query_output.csv', index=False, line_terminator='\r\n')
+```
+
+2. Bash script
+
+```bash
+#!/bin/bash
+
+# Update packages
+apt-get update -y
+
+# Install python 
+apt-get install python3.6 -y
+
+# Install pip
+apt-get install python3-pip -y
+
+# Install MongoDB server
+apt-get install -y mongodb-org
+
+# Install required python libraries
+pip3 install pymongo pandas
+```
+created_time, 1700089070
+completion_tokens, 491
+prompt_tokens, 487
+total_tokens, 978

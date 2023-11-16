@@ -10,10 +10,12 @@ RUN python -m pip install pandas pymongo
 
 # Install platform clients
 RUN apt-get install mysql-client --yes
+RUN python -m pip install pymysql
 RUN python -m pip install redis
 
 RUN python -m pip install cdifflib
 RUN python -m pip install cryptography
+RUN python -m pip install direct_redis
 
 
 # Install DBKnitter

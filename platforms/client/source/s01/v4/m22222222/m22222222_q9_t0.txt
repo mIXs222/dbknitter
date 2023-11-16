@@ -1,0 +1,114 @@
+uid, chatcmpl-8LKnfLOt6aDd4c0D693PkbIWhqarQ
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: nation, part, supplier, partsupp, orders, lineitem\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    NATION,\n    O_YEAR,\n    SUM(AMOUNT) AS SUM_PROFIT\nFROM\n    (\n    SELECT\n        N_NAME AS NATION,\n        strftime('%Y', O_ORDERDATE) AS O_YEAR,\n        L_EXTENDEDPRICE * (1 - L_DISCOUNT) - PS_SUPPLYCOST * L_QUANTITY AS AMOUNT\n    FROM\n        part,\n        supplier,\n        lineitem,\n        partsupp,\n        orders,\n        nation\n    WHERE\n        S_SUPPKEY = L_SUPPKEY\n        AND PS_SUPPKEY = L_SUPPKEY\n        AND PS_PARTKEY = L_PARTKEY\n        AND P_PARTKEY = L_PARTKEY\n        AND O_ORDERKEY = L_ORDERKEY\n        AND S_NATIONKEY = N_NATIONKEY\n        AND P_NAME LIKE '%dim%'\n    ) AS PROFIT\nGROUP BY\n    NATION,\n    O_YEAR\nORDER BY\n    NATION,\n    O_YEAR DESC\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 30.180125951766968
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`query_execution.py`)
+
+```python
+import pandas as pd
+from datetime import datetime
+from direct_redis import DirectRedis
+
+# Function to extract and convert the Redis data into DataFrame
+def get_dataframe_from_redis(table_name):
+    data = db.get(table_name)
+    df = pd.read_json(data)
+    return df
+
+# Function to calculate the SUM_PROFIT
+def calculate_sum_profit(nation, part, supplier, partsupp, orders, lineitem):
+    # Filters
+    filters = (
+        (supplier['S_SUPPKEY'] == lineitem['L_SUPPKEY']) &
+        (partsupp['PS_SUPPKEY'] == lineitem['L_SUPPKEY']) &
+        (partsupp['PS_PARTKEY'] == lineitem['L_PARTKEY']) &
+        (part['P_PARTKEY'] == lineitem['L_PARTKEY']) &
+        (orders['O_ORDERKEY'] == lineitem['O_ORDERKEY']) &
+        (supplier['S_NATIONKEY'] == nation['N_NATIONKEY']) &
+        (part['P_NAME'].str.contains('dim'))
+    )
+
+    # Merge dataframes on filters
+    merged_df = pd.merge(lineitem[filters],
+                         part,
+                         left_on='L_PARTKEY',
+                         right_on='P_PARTKEY')
+    merged_df = pd.merge(merged_df,
+                         supplier,
+                         left_on='L_SUPPKEY',
+                         right_on='S_SUPPKEY')
+    merged_df = pd.merge(merged_df,
+                         partsupp,
+                         left_on=['L_PARTKEY', 'L_SUPPKEY'],
+                         right_on=['PS_PARTKEY', 'PS_SUPPKEY'])
+    merged_df = pd.merge(merged_df,
+                         orders,
+                         left_on='L_ORDERKEY',
+                         right_on='O_ORDERKEY')
+    merged_df = pd.merge(merged_df,
+                         nation,
+                         left_on='S_NATIONKEY',
+                         right_on='N_NATIONKEY')
+
+    # Calculate amount and sum_profit
+    merged_df['AMOUNT'] = (merged_df['L_EXTENDEDPRICE'] *
+                           (1 - merged_df['L_DISCOUNT'])) -\
+                            (merged_df['PS_SUPPLYCOST'] *
+                             merged_df['L_QUANTITY'])
+    merged_df['O_YEAR'] = merged_df['O_ORDERDATE'].apply(lambda x: datetime.fromisoformat(x).year)
+    profit = merged_df.groupby(['N_NAME', 'O_YEAR'])['AMOUNT'].sum().reset_index()
+    profit.columns = ['NATION', 'O_YEAR', 'SUM_PROFIT']
+
+    return profit
+
+# Connect to Redis
+db = DirectRedis(db=0, port=6379, host='redis')
+
+# Load tables from Redis
+nation = get_dataframe_from_redis('nation')
+part = get_dataframe_from_redis('part')
+supplier = get_dataframe_from_redis('supplier')
+partsupp = get_dataframe_from_redis('partsupp')
+orders = get_dataframe_from_redis('orders')
+lineitem = get_dataframe_from_redis('lineitem')
+
+# Calculate SUM_PROFIT
+sum_profit = calculate_sum_profit(nation, part, supplier, partsupp, orders, lineitem)
+
+# Save results to CSV
+sum_profit.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script (`install_dependencies.sh`)
+
+```bash
+#!/bin/bash
+
+# Update package list and upgrade system
+sudo apt-get update
+sudo apt-get -y upgrade
+
+# Create a virtual environment for the project
+python3 -m venv env
+
+# Activate the virtual environment
+source env/bin/activate
+
+# Install pandas
+pip install pandas
+
+# Install direct_redis (in this fictional case, if it were a real library)
+pip install direct_redis
+
+# Activate permissions for execution
+chmod +x query_execution.py
+```
+created_time, 1700095535
+completion_tokens, 775
+prompt_tokens, 665
+total_tokens, 1440

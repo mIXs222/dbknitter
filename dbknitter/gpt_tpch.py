@@ -197,6 +197,8 @@ class TPCHSetup:
             "username": "root",
             "password": "my-secret-pw",
             "hostname": "mysql",
+            "instruction": "Use the python library 'pymysql' to connect the mysql server."
+                           " Do NOT use 'pymysql.cursors.DictCursor'.",
         }
 
     @staticmethod
@@ -288,6 +290,7 @@ class TPCHSetup:
             "database name": "tpch",
             "port": "27017",
             "hostname": "mongodb",
+            "instruction": "Use 'pymongo' to connect to the mongodb server.",
         }
 
     @staticmethod
@@ -379,6 +382,7 @@ class TPCHSetup:
             "database name": "0",
             "port": "6379",
             "hostname": "redis",
+            "instruction": "Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.",
         }
 
     @staticmethod
@@ -609,11 +613,10 @@ class Prompt:
         self.output_file   = output_file
         # prefaces
         self.database_platform_info_pref = "I have several databases of different platforms.\n"
-        self.story         = "But the user of my data thinks all the data is stored in mysql." 
-        self.query_pref         = "With that assumption, they wrote the following query: "
-        self.output_spec   = f"Generate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file {self.output_file}. Please seperately output 1. the bash commandspython code(.py) and 2. a bash command file (.sh) to install all dependencies to run that python code."
+        self.query_pref    = "But a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: "
+        self.output_spec   = f"Generate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file {self.output_file}. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code."
         # Note: Specify the specific python libraries to be used in the python code. And other considerations 
-        self.note_info = "Note that if a table is not in a database, it should not appear in the query for that database. Use the python library 'mysql.connector' to connect the mysql server. Use 'pymongo' to connect to the mongodb server."
+        self.note_info = "Note that if a table is not in a database, it should not appear in the query for that database."
 
         self.conf_info = self.gen_all_config_info()
     
@@ -637,27 +640,23 @@ class Prompt:
         gist:str = f"{platform_name} has database named {database_name} with tables: "
         gist = gist + self._list_to_string(table_names) + "\n"
         
-        table_schema:str = "the table schema are as follows:\n"
+        table_schema:str = f"Relevant table names and their schemas in {platform_name}:\n"
         for table_n in table_names:
             tab = self.datalake.tables[table_n]                  # Table object 
-            table_schema += f"{table_n}(table name): "
+            table_schema += f"- {table_n}: "
             for i, col_name in enumerate(tab.equivalent_sql_table.schema.columns):
                 col = tab.equivalent_sql_table.schema.columns[col_name]   # SQL_COLUMN object
-                table_schema += f"column {col_name}"
+                table_schema += f"{col_name}"
                 # table_schema += f" of type {col.datatype}"
                 if(i < len(tab.equivalent_sql_table.schema.columns)-1):
                     table_schema += ", "
                 else:
                     table_schema += "\n"
                     
-        admin:str = "the database admin info are as follows:\n"
+        admin:str = f"To connect with {platform_name}, use these connection information:\n"
         example_table = self.datalake.tables[table_names[0]]
         for spec_name in example_table.admin_details:
-            admin += f"{spec_name}: {example_table.admin_details[spec_name]}"
-            if(i < len(example_table.admin_details)-1):
-                admin += ", "
-            else:
-                admin += "\n"
+            admin += f"- {spec_name}: {example_table.admin_details[spec_name]}\n"
                 
         return gist + table_schema + admin
     
@@ -687,7 +686,7 @@ class Prompt:
   
         q = get_query(query, isfile)
         
-        prompt =  self.conf_info + " \n" + self.story + "\n" + self.query_pref + q + "\n" + self.output_spec + "\n" + self.note_info
+        prompt =  self.conf_info + "\n" + self.query_pref + f"\n```sql\n" + q + "\n```\n" + self.output_spec + "\n" + self.note_info
         return prompt
 
 #####################################################################################################
@@ -699,7 +698,8 @@ class Multi_Message_ChatGPTQuery:
         self.data = ""
         self.runtime = -1
         self.output_text = ""
-        self.gpt_model = "gpt-4" # "gpt-3.5-turbo"
+        # self.gpt_model = "gpt-4" # "gpt-3.5-turbo", "gpt-4-1106-preview"
+        self.gpt_model = "gpt-4-1106-preview"
         self.finished_reason = ""
         self.response = ""
         self.created_time = -1
@@ -783,13 +783,14 @@ class GPT:
         The system message helps set the behavior of the assistant. For example, you can modify the personality of the assistant or provide specific instructions about how it should behave throughout the conversation. However note that the system message is optional and the model’s behavior without a system message is likely to be similar to using a generic message such as "You are a helpful assistant."
         '''
         cq.set_input_message_len()
+        ts = time.time()
         result = cq.chat_with_gpt()
         #print(result)
-        ts = time.time()
         # response = requests.post(self.api_endpoint, json=cq.params, headers=cq.headers)
         # cq.data = response.json() # data is python dictionary. resopnse is json.
         assert cq.runtime == -1
         cq.runtime = (time.time() - ts)
+        print(f"Chatted for {cq.runtime} seconds")
         self.num_query += 1
         cq.write_result(output_filepath)
         return cq.response
@@ -800,7 +801,14 @@ class GPT:
         cq = Multi_Message_ChatGPTQuery()
         cq.add_context(query_prompt)
         # cq.add_context(..) # can add more queries
-        gpt_output = self.send_request(cq, output_filepath)
+        num_tries = 3
+        while num_tries > 0:
+            try:
+                return self.send_request(cq, output_filepath)
+            except openai.error.RateLimitError as e:
+                num_tries -= 1
+                print(f"ERROR sleeping due to rate limiting ({e}). {num_tries} tries left.")
+                time.sleep(30)
         # mongodb_code = gpt_output['choices'][0]['text']
         #print("********************")
         #print("** chatgpt output **")
@@ -917,18 +925,14 @@ def main_batch(argv):
             print(query_prompt)
 
             # Try mulitple times
-            for tidx in range(3):  # TODO: higher?
+            for tidx in range(0, 1):  # TODO: higher?
                 output_dir_midx = output_dir / f"m{midx}"
                 if not os.path.exists(output_dir_midx):
                     os.makedirs(output_dir_midx)
                 output_path = output_dir_midx / f"m{midx}_q{qidx}_t{tidx}.txt"
                 gpt.call_chatgpt_api(query_prompt, output_path)
                 print(f"[{midx}, {qidx}, {tidx}] Written to {output_path}")
-
-                # TODO: Parse out Python and setup
-                print("*"*15)
-                print("return return")
-                print("*"*15)
+                print("=========================================================================\n")
 
 
 if __name__ == "__main__":

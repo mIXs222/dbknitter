@@ -1,11 +1,17 @@
 import enum
-import os
 import pandas as pd
 import shutil
-from cdifflib import CSequenceMatcher
-SequenceMatcher = CSequenceMatcher
+import subprocess
+
+# from cdifflib import CSequenceMatcher
+# SequenceMatcher = CSequenceMatcher
+
+from difflib import SequenceMatcher
 from functools import partial
 from pathlib import Path
+
+pd.set_option('display.max_columns', None)
+pd.set_option('display.expand_frame_repr', False)
 
 
 def str_similar(a, b):
@@ -17,7 +23,9 @@ DEFAULT_OUTPUT_PATH = Path("./query_output.csv")  # TODO: Change this
 
 class Score(str, enum.Enum):
     success = "success"
+    success_approx = "success_approx"
     fail_execute = "fail_execute"
+    fail_timeout = "fail_timeout"
     fail_missing_output = "fail_missing_output"
     fail_parsing_output = "fail_parsing_output"
     fail_wrong_output = "fail_wrong_output"
@@ -26,10 +34,12 @@ class Score(str, enum.Enum):
 # Run target code
 def execute_code(source_path: Path) -> Score:
     try:
-        os.system(f"python {source_path}")
+        subprocess.run(["python", f"{source_path}"], check=True, timeout=600)  # 10 minutes
         return Score.success
-    except Exception:
+    except subprocess.CalledProcessError:
         return Score.fail_execute
+    except subprocess.TimeoutExpired:
+        return Score.fail_timeout
 
 
 # Move output to target name
@@ -53,17 +63,24 @@ def compare_csv(actual_output_path: Path, expected_output_path: Path) -> Score:
     # Read expected output.
     expected_df = pd.read_csv(expected_output_path)
 
+    # Remove invariants.
+    actual_df.sort_index(axis=1, inplace=True)
+    expected_df.sort_index(axis=1, inplace=True)
+
     # Compare outputs and return result.
-    print(f">>> Expected\n{expected_df}\n")
-    print(f">>> Actual\n{actual_df}\n")
+    print(f">>> Expected ({expected_df.shape})\n{expected_df}\n")
+    print(f">>> Actual ({actual_df.shape})\n{actual_df}\n")
     correct_output = actual_df.equals(expected_df)
-    if not correct_output:
+    if not correct_output and expected_df.shape == actual_df.shape:
         # Compare string similarity
         # similarity = str_similar(actual_df.to_string(), expected_df.to_string())
-        # correct_output = similarity > 0.9
+        similarity = str_similar(actual_df.head(100).to_string(), expected_df.head(100).to_string())
+        print(f"Head row similarity: {similarity}")
+        if similarity > 0.7:
+            return Score.success_approx
         # print(f"difflib similarity: {similarity}")
-        correct_output = (str(actual_df) == str(expected_df))
-        print(f"Override with string comparison")
+        # correct_output = (str(actual_df) == str(expected_df))
+        # print(f"Override with string comparison")
 
     # Returns.
     if not correct_output:

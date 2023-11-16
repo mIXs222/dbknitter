@@ -20,20 +20,15 @@ TABLES=$(echo $TABLES_STR | tr "," "\n")
 echo "Using DATA_ROOT=${DATA_ROOT}, TABLES=${TABLES_STR}"
 
 read -r -d '' HEADER <<- EOM
-import redis
+import direct_redis
 import pandas as pd
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0, ssl=False)
-pipe = redis_client.pipeline()
+redis_client = direct_redis.DirectRedis(host='localhost', port=6379, db=0, ssl=False)
 EOM
 
 read -r -d '' TAIL <<- EOM
-for key, item in df.iterrows():
-    # pipe.hset(f"{table_name}", mapping=item.to_dict())
-    pipe.xadd(f"{table_name}", {k: v for k, v in item.to_dict().items()})
-set_response = pipe.execute()
-# print(f"Inserted {len(set_response)} rows ({sum(set_response)} fields)")  # HSET
-print(f"Inserted {len(set_response)} rows")  # XADD
+redis_client.set(f"{table_name}", df)
+print(f"Inserted {df.shape} dataframe")
 EOM
 
 read -r -d '' NATION_PY <<- EOM

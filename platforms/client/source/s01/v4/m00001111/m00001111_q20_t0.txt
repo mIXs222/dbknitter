@@ -1,0 +1,123 @@
+uid, chatcmpl-8LKdSSdLjHcSMw91X4IdHgYENKfZT
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, part, supplier\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: partsupp, lineitem\nRelevant table names and their schemas in mongodb:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    S_NAME,\n    S_ADDRESS\nFROM\n    supplier,\n    nation\nWHERE\n    S_SUPPKEY IN (\n    SELECT\n        PS_SUPPKEY\n    FROM\n        partsupp\n    WHERE\n    PS_PARTKEY IN (\n        SELECT\n            P_PARTKEY\n        FROM\n            part\n        WHERE\n            P_NAME LIKE 'forest%'\n    )\n    AND PS_AVAILQTY > (\n        SELECT\n            0.5 * SUM(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = PS_PARTKEY\n        AND L_SUPPKEY = PS_SUPPKEY\n        AND L_SHIPDATE >= '1994-01-01'\n        AND L_SHIPDATE < '1995-01-01'\n        )\n    )\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_NAME = 'CANADA'\nORDER BY\n    S_NAME\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.320039987564087
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`query_code.py`):
+
+```python
+import pymysql
+import pymongo
+import csv
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    database='tpch'
+)
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient('mongodb', 27017)
+mongo_db = mongo_client['tpch']
+
+# Fetch part keys with P_NAME like 'forest%'
+cursor = mysql_conn.cursor()
+cursor.execute("SELECT P_PARTKEY FROM part WHERE P_NAME LIKE 'forest%'")
+part_keys = [row[0] for row in cursor.fetchall()]
+
+# Fetch supplier details and nation keys from MySQL
+cursor.execute("""
+    SELECT s.S_SUPPKEY, s.S_NAME, s.S_ADDRESS, s.S_NATIONKEY
+    FROM supplier AS s
+    JOIN nation AS n ON s.S_NATIONKEY = n.N_NATIONKEY
+    WHERE n.N_NAME = 'CANADA'
+""")
+suppliers = cursor.fetchall()
+cursor.close()
+mysql_conn.close()
+
+# Mapping from supplier keys to supplier info for eligible suppliers
+eligible_suppliers = {}
+for supp_key, name, address, nation_key in suppliers:
+    eligible_suppliers[supp_key] = {
+        'S_NAME': name,
+        'S_ADDRESS': address,
+        'S_NATIONKEY': nation_key
+    }
+
+# Pull from MongoDB and filter partsupp
+partsupp_collection = mongo_db['partsupp']
+partsupp_docs = partsupp_collection.find({
+    'PS_PARTKEY': {'$in': part_keys},
+    'PS_SUPPKEY': {'$in': list(eligible_suppliers.keys())}
+})
+
+# Filter lineitem collection from MongoDB by partsupp and date range
+lineitem_collection = mongo_db['lineitem']
+half_qty_by_suppart = {}
+for partsupp in partsupp_docs:
+    ps_suppkey = partsupp['PS_SUPPKEY']
+    ps_partkey = partsupp['PS_PARTKEY']
+    sum_qty = lineitem_collection.aggregate([
+        {'$match': {
+            'L_PARTKEY': ps_partkey,
+            'L_SUPPKEY': ps_suppkey,
+            'L_SHIPDATE': {'$gte': '1994-01-01', '$lt': '1995-01-01'}
+        }},
+        {'$group': {
+            '_id': None,
+            'total_qty': {'$sum': '$L_QUANTITY'}
+        }}
+    ])
+    sum_qty = next(sum_qty, {}).get('total_qty', 0)
+    half_qty_by_suppart[(ps_partkey, ps_suppkey)] = 0.5 * sum_qty
+
+# Filter suppliers by PS_AVAILQTY and construct result list
+result = []
+for partsupp in partsupp_docs:
+    ps_suppkey = partsupp['PS_SUPPKEY']
+    ps_partkey = partsupp['PS_PARTKEY']
+    ps_availqty = partsupp['PS_AVAILQTY']
+    if ps_availqty > half_qty_by_suppart.get((ps_partkey, ps_suppkey), 0):
+        supplier_info = eligible_suppliers.get(ps_suppkey)
+        if supplier_info:
+            result.append((supplier_info['S_NAME'], supplier_info['S_ADDRESS']))
+
+# Sort results by supplier name
+result_sorted = sorted(result, key=lambda r: r[0])
+
+# Write query output to CSV file
+with open('query_output.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(['S_NAME', 'S_ADDRESS'])
+    for row in result_sorted:
+        writer.writerow(row)
+```
+
+2. Bash script (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Update package list
+apt-get update
+
+# Install MySQL client
+apt-get install -y default-mysql-client
+
+# Install Python and pip
+apt-get install -y python3 python3-pip
+
+# Install required Python libraries
+pip3 install pymysql pymongo
+```
+created_time, 1700094902
+completion_tokens, 820
+prompt_tokens, 684
+total_tokens, 1504

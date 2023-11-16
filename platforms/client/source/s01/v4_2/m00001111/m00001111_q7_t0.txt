@@ -1,0 +1,96 @@
+uid, chatcmpl-8LJXhf6B262X22v2YduLbhGllVkvf
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, supplier\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: customer, orders, lineitem\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    SUPP_NATION,\n    CUST_NATION,\n    L_YEAR,\n    SUM(VOLUME) AS REVENUE\nFROM\n    (\n    SELECT\n        N1.N_NAME AS SUPP_NATION,\n        N2.N_NAME AS CUST_NATION,\n        strftime('%Y', L_SHIPDATE) AS L_YEAR,\n        L_EXTENDEDPRICE * (1 - L_DISCOUNT) AS VOLUME\n    FROM\n        supplier,\n        lineitem,\n        orders,\n        customer,\n        nation n1,\n        nation n2\n    WHERE\n        S_SUPPKEY = L_SUPPKEY\n        AND O_ORDERKEY = L_ORDERKEY\n        AND C_CUSTKEY = O_CUSTKEY\n        AND S_NATIONKEY = N1.N_NATIONKEY\n        AND C_NATIONKEY = N2.N_NATIONKEY\n        AND (\n            (N1.N_NAME = 'JAPAN' AND N2.N_NAME = 'INDIA')\n            OR (N1.N_NAME = 'INDIA' AND N2.N_NAME = 'JAPAN')\n            )\n        AND L_SHIPDATE BETWEEN '1995-01-01' AND '1996-12-31'\n    ) AS SHIPPING\nGROUP BY\n    SUPP_NATION,\n    CUST_NATION,\n    L_YEAR\nORDER BY\n    SUPP_NATION,\n    CUST_NATION,\n    L_YEAR\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 27.93956422805786
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, Here is your python script (query.py):
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from dateutil.parser import parse
+from bson.code import Code
+
+# Define the SQL and MongoDB connections
+sql_conn = pymysql.connect(
+  host='mysql',
+  user='root',
+  password='my-secret-pw',
+  database='tpch'
+)
+mongo_client = pymongo.MongoClient('mongodb', 27017)
+mongo_db = mongo_client['tpch']
+
+# Execute SQL query and get data
+sql_query = """
+  SELECT
+    N_NAME AS SUPP_NATION,
+    S_SUPPKEY
+  FROM
+    supplier,
+    nation
+  WHERE S_NATIONKEY = N_NATIONKEY
+    AND (N_NAME = 'JAPAN' OR N_NAME = 'INDIA')
+"""
+sql_df = pd.read_sql(sql_query, sql_conn)
+
+# Define MongoDB map-reduce functions
+map_func = Code("""
+  function() {
+    var fmtYear = function(d) { 
+      return d.getFullYear(); 
+    };
+    var year = fmtYear(this.L_SHIPDATE);
+    if (year >= '1995' && year <= '1996') {
+      emit(
+        {CUST_NATION: this.C_NATIONKEY, SUPPKEY: this.L_SUPPKEY}, 
+        {VOLUME: this.L_EXTENDEDPRICE * (1 - this.L_DISCOUNT)}
+      );
+    }
+  }
+""")
+reduce_func = Code("""
+  function(key, values) {
+    var total = 0;
+    for (var i = 0; i < values.length; i++) {
+      total += values[i].VOLUME;
+    }
+    return {VOLUME: total};
+  }
+""")
+
+# Execute MongoDB map-reduce and get data
+mongo_results = mongo_db.lineitem.map_reduce(map_func, reduce_func, "myresults")
+mongo_df = pd.DataFrame(list(mongo_results.find()))
+
+# Merge SQL and MongoDB data
+df = pd.merge(sql_df, mongo_df, how='inner', left_on='S_SUPPKEY', right_on='_id.SUPPKEY')
+
+# Group by SUPP_NATION, CUST_NATION and L_YEAR, then calculate sum of VOLUME as REVENUE
+result_df = df.groupby(['SUPP_NATION', 'CUST_NATION', '_id.year'], as_index=False)['value.VOLUME'].sum()
+result_df.rename(columns = {'_id.year':'L_YEAR', 'value.VOLUME':'REVENUE'}, inplace = True)
+
+# Write result to CSV file
+result_df.to_csv('query_output.csv', index=False)
+```
+Bash script (setup.sh):
+```bash
+#!/bin/bash
+pip install pymysql
+pip install pymongo
+pip install pandas
+pip install python-dateutil
+```
+Note: Please make sure to run the bash script in the same environment where you are running your python code to install dependencies correctly.
+Also, be aware that this code assumes you have appropriate accessibility and permissions to access the databases. If not, you must rectify those issues and ensure the connectivity before running this code.
+
+The python code is designed to fetch the required data from a SQL database (using PyMySQL) and MongoDB (using PyMongo), then manipulate the results using pandas to match the original SQL query. The bash script contains the necessary pip commands to install the required python packages.
+created_time, 1700090701
+completion_tokens, 689
+prompt_tokens, 798
+total_tokens, 1487

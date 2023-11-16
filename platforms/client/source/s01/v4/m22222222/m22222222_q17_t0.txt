@@ -1,0 +1,72 @@
+uid, chatcmpl-8LKpq933upWcnYQNzwGvut4mYf7oT
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: part, lineitem\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    SUM(L_EXTENDEDPRICE) / 7.0 AS AVG_YEARLY\nFROM\n    lineitem,\n    part\nWHERE\n    P_PARTKEY = L_PARTKEY\n    AND P_BRAND = 'Brand#23'\n    AND P_CONTAINER = 'MED BAG'\n    AND L_QUANTITY < (\n        SELECT\n            0.2 * AVG(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = P_PARTKEY\n    )\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 15.91310977935791
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python Code (query_redis.py)
+```python
+import pandas as pd
+from direct_redis import DirectRedis
+
+def execute_query():
+    # Connect to Redis database
+    redis_db = DirectRedis(host='redis', port=6379, db=0)
+
+    # Read data from Redis
+    part_df = pd.read_json(redis_db.get('part'))
+    lineitem_df = pd.read_json(redis_db.get('lineitem'))
+
+    # Merge the dataframes where part keys are the same
+    merged_df = part_df.merge(lineitem_df, left_on='P_PARTKEY', right_on='L_PARTKEY')
+
+    # Filter the merged dataframe by brand and container
+    filtered_df = merged_df[
+        (merged_df['P_BRAND'] == 'Brand#23') &
+        (merged_df['P_CONTAINER'] == 'MED BAG')
+    ]
+
+    # Calculate the average quantity of lineitem per part
+    avg_quantity = lineitem_df.groupby('L_PARTKEY')['L_QUANTITY'].mean().reset_index()
+    avg_quantity['avg_qty_20_pct'] = 0.2 * avg_quantity['L_QUANTITY']
+
+    # Merge with the filtered dataframe on part key and apply the quantity filter
+    final_df = filtered_df.merge(avg_quantity, left_on='P_PARTKEY', right_on='L_PARTKEY')
+    final_df = final_df[final_df['L_QUANTITY_x'] < final_df['avg_qty_20_pct']]
+
+    # Calculate the result of the query
+    avg_yearly = final_df['L_EXTENDEDPRICE'].sum() / 7.0
+
+    # Save the result to a CSV file
+    pd.DataFrame({'AVG_YEARLY': [avg_yearly]}).to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    execute_query()
+```
+
+2. Bash Script (install_dependencies.sh)
+```bash
+#!/bin/bash
+
+# Update the package list
+sudo apt-get update
+
+# Install Python if not already installed
+sudo apt-get install -y python3
+
+# Install pip for Python 3 if not already installed
+sudo apt-get install -y python3-pip
+
+# Install Pandas library using pip
+pip3 install pandas
+
+# Install direct_redis library using pip
+pip3 install git+https://github.com/lordralinc/direct_redis.git#egg=direct_redis
+```
+created_time, 1700095670
+completion_tokens, 490
+prompt_tokens, 439
+total_tokens, 929

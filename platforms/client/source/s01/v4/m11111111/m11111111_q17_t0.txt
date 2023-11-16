@@ -1,0 +1,91 @@
+uid, chatcmpl-8LKVUZSQcQ2cYIRwxVzYlhZMFYIm8
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: part, lineitem\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    SUM(L_EXTENDEDPRICE) / 7.0 AS AVG_YEARLY\nFROM\n    lineitem,\n    part\nWHERE\n    P_PARTKEY = L_PARTKEY\n    AND P_BRAND = 'Brand#23'\n    AND P_CONTAINER = 'MED BAG'\n    AND L_QUANTITY < (\n        SELECT\n            0.2 * AVG(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = P_PARTKEY\n    )\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 15.472737073898315
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code to execute the query on the MongoDB databases (save it in a file named `run_query.py`):
+
+```python
+from pymongo import MongoClient
+import csv
+
+# MongoDB connection information
+MONGO_DB = "tpch"
+MONGO_PORT = 27017 
+MONGO_HOSTNAME = "mongodb"
+
+def connect_to_mongo():
+    client = MongoClient(MONGO_HOSTNAME, MONGO_PORT)
+    db = client[MONGO_DB]
+    return db
+
+# Connect to MongoDB
+db = connect_to_mongo()
+
+parts = list(db.part.find({"P_BRAND": "Brand#23", "P_CONTAINER": "MED BAG"}, {"P_PARTKEY": 1}))
+part_keys = [p["P_PARTKEY"] for p in parts]
+
+# Initialize variable to hold sum of extended prices
+total_extended_price = 0
+
+# Process lineitems that have a partkey in part_keys
+for part_key in part_keys:
+    avg_quantity = db.lineitem.aggregate([
+        {"$match": {"L_PARTKEY": part_key}},
+        {"$group": {"_id": None, "avg_quantity": {"$avg": "$L_QUANTITY"}}}
+    ]).next()["avg_quantity"]
+
+    lineitems = db.lineitem.find(
+        {
+            "L_PARTKEY": part_key,
+            "L_QUANTITY": {"$lt": 0.2 * avg_quantity}
+        },
+        {"L_EXTENDEDPRICE": 1}
+    )
+    
+    for lineitem in lineitems:
+        total_extended_price += lineitem["L_EXTENDEDPRICE"]
+
+avg_yearly = total_extended_price / 7.0
+
+# Write the output to query_output.csv
+with open('query_output.csv', mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(['AVG_YEARLY'])
+    writer.writerow([avg_yearly])
+
+print("Query output has been written to query_output.csv.")
+```
+
+Now, here's the bash script to install all the Python code dependencies (save it in a file named `setup.sh`):
+
+```bash
+#!/bin/bash
+
+# Update package lists
+sudo apt-get update
+
+# Install Python3 and pip3 if they are not installed
+sudo apt-get install -y python3 python3-pip
+
+# Install pymongo MongoDB driver for Python
+pip3 install pymongo
+
+echo "All dependencies have been installed."
+```
+
+Remember to give the bash script executable permission:
+
+```bash
+chmod +x setup.sh
+```
+
+Run the bash script to ensure all dependencies are installed before executing the Python script.
+created_time, 1700094408
+completion_tokens, 524
+prompt_tokens, 425
+total_tokens, 949

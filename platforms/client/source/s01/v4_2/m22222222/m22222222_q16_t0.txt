@@ -1,0 +1,60 @@
+uid, chatcmpl-8LJrJpGRcWahQEElMvTLkp5XeU3eZ
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: part, supplier, partsupp\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use 'direct_redis' to read Pandas DataFrame using get('tablename').\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    P_BRAND,\n    P_TYPE,\n    P_SIZE,\n    COUNT(DISTINCT PS_SUPPKEY) AS SUPPLIER_CNT\nFROM\n    partsupp,\n    part\nWHERE\n    P_PARTKEY = PS_PARTKEY\n    AND P_BRAND <> 'Brand#45'\n    AND P_TYPE NOT LIKE 'MEDIUM POLISHED%'\n    AND P_SIZE IN (49, 14, 23, 45, 19, 3, 36, 9)\n    AND PS_SUPPKEY NOT IN (\n        SELECT\n            S_SUPPKEY\n        FROM\n            supplier\n        WHERE\n            S_COMMENT LIKE '%Customer%Complaints%'\n    )\nGROUP BY\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\nORDER BY\n    SUPPLIER_CNT DESC,\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 15.687581300735474
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, Here is the Python code (query.py):
+
+```python
+import redis
+import pandas as pd
+import numpy as np
+from pandas.io.json import json_normalize
+import json
+
+REDIS_HOST = 'redis'
+REDIS_PORT = 6379
+
+# Connect to Redis
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
+
+# Get data from Redis
+partsupp = json.loads(r.get('partsupp'))
+part = json.loads(r.get('part'))
+supplier = json.loads(r.get('supplier'))
+
+# Convert to dataframes
+df_partsupp = pd.DataFrame.from_records(partsupp)
+df_part = pd.DataFrame.from_records(part)
+df_supplier = pd.DataFrame.from_records(supplier)
+
+# Execute query in Pandas
+df = pd.merge(df_part, df_partsupp, how='inner', on='P_PARTKEY')
+df = df[(df['P_BRAND'] != 'Brand#45') &
+        (~df['P_TYPE'].str.contains('MEDIUM POLISHED')) &
+        (df['P_SIZE'].isin([49, 14, 23, 45, 19, 3, 36, 9])) &
+        (~df['PS_SUPPKEY'].isin(df_supplier[df_supplier['S_COMMENT'].str.contains('Customer Complaints')]['S_SUPPKEY'].unique()))]
+df = df.groupby(['P_BRAND', 'P_TYPE', 'P_SIZE'])['PS_SUPPKEY'].nunique().reset_index(name='SUPPLIER_CNT')
+df = df.sort_values(by=['SUPPLIER_CNT', 'P_BRAND', 'P_TYPE', 'P_SIZE'], ascending=[False, True, True, True])
+
+# Write to CSV
+df.to_csv('query_output.csv', index=False)
+```
+
+And the bash script to install related Python packages (setup.sh):
+
+```bash
+#!/bin/bash
+
+pip install redis
+pip install pandas
+pip install python-dateutil
+```
+created_time, 1700091917
+completion_tokens, 394
+prompt_tokens, 490
+total_tokens, 884

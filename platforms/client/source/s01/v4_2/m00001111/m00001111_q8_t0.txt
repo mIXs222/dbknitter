@@ -1,0 +1,87 @@
+uid, chatcmpl-8LJY9I90MEIO2WnD5K28jqmczbpPS
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, region, part, supplier\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: customer, orders, lineitem\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    O_YEAR,\n    SUM(CASE WHEN NATION = 'INDIA' THEN VOLUME ELSE 0 END) / SUM(VOLUME) AS MKT_SHARE\nFROM\n    (\n    SELECT\n        strftime('%Y', O_ORDERDATE) AS O_YEAR,\n        L_EXTENDEDPRICE * (1 - L_DISCOUNT) AS VOLUME,\n        N2.N_NAME AS NATION\n    FROM\n        part,\n        supplier,\n        lineitem,\n        orders,\n        customer,\n        nation n1,\n        nation n2,\n        region\n    WHERE\n        P_PARTKEY = L_PARTKEY\n        AND S_SUPPKEY = L_SUPPKEY\n        AND L_ORDERKEY = O_ORDERKEY\n        AND O_CUSTKEY = C_CUSTKEY\n        AND C_NATIONKEY = N1.N_NATIONKEY\n        AND N1.N_REGIONKEY = R_REGIONKEY\n        AND R_NAME = 'ASIA'\n        AND S_NATIONKEY = N2.N_NATIONKEY\n        AND O_ORDERDATE BETWEEN '1995-01-01' AND '1996-12-31'\n        AND P_TYPE = 'SMALL PLATED COPPER'\n    ) AS ALL_NATIONS\nGROUP BY\n    O_YEAR\n    ORDER BY\n    O_YEAR\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.781525135040283
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, Python Code (query.py):
+
+```python
+import csv
+import pymongo
+import pymysql
+from datetime import datetime
+
+# Database configurations
+mongo_config = {
+    'dbName': 'tpch',
+    'host': 'mongodb',
+    'port': 27017,
+}
+
+mysql_config = {
+    'host': 'mysql',
+    'user': 'root',
+    'password': 'my-secret-pw',
+    'database': 'tpch',
+}
+
+# MongoDB connection
+mongo_client = pymongo.MongoClient(mongo_config['host'], mongo_config['port'])
+mongo_db = mongo_client[mongo_config['dbName']]
+orders_collection = mongo_db['orders']
+lineitem_collection = mongo_db['lineitem']
+customer_collection = mongo_db['customer']
+
+# MySQL connection
+mysql_conn = pymysql.connect(host=mysql_config['host'],
+        user=mysql_config['user'], password=mysql_config['password'],
+        database=mysql_config['database'])
+cursor = mysql_conn.cursor()
+cursor.execute("SELECT N_NATIONKEY, N_NAME, R_REGIONKEY FROM nation JOIN region ON N_REGIONKEY = R_REGIONKEY WHERE N_NAME = 'INDIA' AND R_NAME='ASIA'")
+india_info = cursor.fetchone()
+
+# Query orders from MongoDB
+orders = orders_collection.find({
+    "O_ORDERDATE": {"$gte": datetime.strptime("1995-01-01", "%Y-%m-%d"), "$lte": datetime.strptime("1996-12-31", "%Y-%m-%d")},
+    "O_CUSTKEY": india_info[0]
+})
+orders_dict = {order['O_ORDERKEY'] : order for order in orders}
+
+# Query lineitems from MongoDB
+lineitems = lineitem_collection.find({})
+lineitems_dict = {lineitem['L_ORDERKEY'] : lineitem for lineitem in lineitems}
+
+# Query customers from MongoDB
+customers = customer_collection.find({})
+customers_dict = {customer['C_CUSTKEY'] : customer for customer in customers}
+
+# Write results into CSV
+with open('query_output.csv', 'w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(["O_YEAR", "MKT_SHARE"])
+    for order_key, order in orders_dict.items():
+        lineitem = lineitems_dict.get(order_key)
+        customer = customers_dict.get(order['O_CUSTKEY'])
+        if lineitem and customer and lineitem['L_PARTKEY'] == 'SMALL PLATED COPPER':
+            writer.writerow([datetime.strftime(order['O_ORDERDATE'], '%Y'), lineitem['L_EXTENDEDPRICE'] * (1 - lineitem['L_DISCOUNT'])])
+```
+
+Bash Script (setup.sh) 
+
+```bash
+#!/bin/bash
+
+pip install pymongo
+pip install pymysql
+pip install csv
+pip install python-dateutil
+```
+You can run the bash script by calling `bash setup.sh` from terminal. This will install all the needed libraries.
+created_time, 1700090729
+completion_tokens, 589
+prompt_tokens, 823
+total_tokens, 1412

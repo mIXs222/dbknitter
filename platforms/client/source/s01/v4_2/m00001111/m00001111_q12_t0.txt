@@ -1,0 +1,88 @@
+uid, chatcmpl-8LJZjSYkAcvcYVPyrzlQj367huwMe
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: orders, lineitem\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    L_SHIPMODE,\n    SUM(CASE\n            WHEN O_ORDERPRIORITY = '1-URGENT'\n            OR O_ORDERPRIORITY = '2-HIGH'\n            THEN 1\n            ELSE 0\n    END) AS HIGH_LINE_COUNT,\n    SUM(CASE\n            WHEN O_ORDERPRIORITY <> '1-URGENT'\n            AND O_ORDERPRIORITY <> '2-HIGH'\n            THEN 1\n            ELSE 0\n    END) AS LOW_LINE_COUNT\nFROM\n    orders,\n    lineitem\nWHERE\n    O_ORDERKEY = L_ORDERKEY\n    AND L_SHIPMODE IN ('MAIL', 'SHIP')\n    AND L_COMMITDATE < L_RECEIPTDATE\n    AND L_SHIPDATE < L_COMMITDATE\n    AND L_RECEIPTDATE >= '1994-01-01'\n    AND L_RECEIPTDATE < '1995-01-01'\nGROUP BY\n    L_SHIPMODE\nORDER BY\n    L_SHIPMODE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 29.284883975982666
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, 1. Python Code (query.py)
+
+```python
+import pymongo
+from pymongo import MongoClient
+import csv
+from datetime import datetime
+from collections import defaultdict
+
+
+def is_high_priority(order_priority):
+    return order_priority in ['1-URGENT', '2-HIGH']
+
+
+def is_not_high_priority(order_priority):
+    return order_priority not in ['1-URGENT', '2-HIGH']
+
+
+def date_in_range(date):
+    return date >= datetime.strptime('1994-01-01', '%Y-%m-%d') and \
+           date < datetime.strptime('1995-01-01', '%Y-%m-%d')
+
+
+one_year_ago = datetime.now() - timedelta(days=365)
+orders_dict = defaultdict(list)
+client = MongoClient('mongodb', 27017)
+tpch = client.tpch
+orders = tpch['orders']
+lineitem = tpch['lineitem']
+
+orders_list = list(
+    orders.find({}, {'_id': False, 'O_ORDERKEY': True, 'O_ORDERPRIORITY': True}))
+lineitem_list = list(
+    lineitem.find({'L_SHIPMODE': {'$in': ['MAIL', 'SHIP']}, 'L_COMMITDATE': {'$lt': 'L_RECEIPTDATE'},
+                   'L_SHIPDATE': {'$lt': 'L_COMMITDATE'}, 'L_RECEIPTDATE': {'$gte': '1994-01-01', '$lt': '1995-01-01'}}))
+
+for order in orders_list:
+    orders_dict[order['O_ORDERKEY']].append(order['O_ORDERPRIORITY'])
+
+query_result = []
+
+for item in lineitem_list:
+    if item['L_ORDERKEY'] in orders_dict:
+        order_priority = orders_dict[item['L_ORDERKEY']][0]
+        high_line_count = 1 if is_high_priority(order_priority) else 0
+        low_line_count = 1 if is_not_high_priority(order_priority) else 0
+        query_result.append(
+            (item['L_SHIPMODE'], high_line_count, low_line_count))
+query_result.sort()
+
+with open('query_output.csv', 'w') as f:
+    writer = csv.writer(f)
+    writer.writerow(['L_SHIPMODE', 'HIGH_LINE_COUNT', 'LOW_LINE_COUNT'])
+    writer.writerows(query_result)
+```
+
+2. Bash Script (install_dependencies.sh)
+
+```bash
+#!/bin/bash
+
+# Update system
+sudo apt-get update -y
+sudo apt-get upgrade -y
+
+# Install python3 pip
+sudo apt-get install python3-pip -y
+
+# Install pymongo using pip
+sudo pip3 install pymongo
+
+# Install csv and datetime libraries
+sudo pip3 install python-dateutil
+```
+
+created_time, 1700090827
+completion_tokens, 557
+prompt_tokens, 542
+total_tokens, 1099

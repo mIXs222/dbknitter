@@ -1,0 +1,110 @@
+uid, chatcmpl-8LKkdJfi7QJ41F1f9KWh2Ac9YTuMZ
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, part, partsupp\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: supplier, lineitem\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    S_NAME,\n    S_ADDRESS\nFROM\n    supplier,\n    nation\nWHERE\n    S_SUPPKEY IN (\n    SELECT\n        PS_SUPPKEY\n    FROM\n        partsupp\n    WHERE\n    PS_PARTKEY IN (\n        SELECT\n            P_PARTKEY\n        FROM\n            part\n        WHERE\n            P_NAME LIKE 'forest%'\n    )\n    AND PS_AVAILQTY > (\n        SELECT\n            0.5 * SUM(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = PS_PARTKEY\n        AND L_SUPPKEY = PS_SUPPKEY\n        AND L_SHIPDATE >= '1994-01-01'\n        AND L_SHIPDATE < '1995-01-01'\n        )\n    )\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_NAME = 'CANADA'\nORDER BY\n    S_NAME\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 19.5154812335968
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`query_code.py`):
+
+```python
+import pymysql
+import pymongo
+import csv
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    database='tpch'
+)
+mysql_cursor = mysql_conn.cursor()
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient(hostname='mongodb', port=27017)
+mongo_db = mongo_client['tpch']
+
+# Fetching parts with P_NAME like 'forest%'
+mysql_cursor.execute("SELECT P_PARTKEY FROM part WHERE P_NAME LIKE 'forest%'")
+part_keys = [row[0] for row in mysql_cursor.fetchall()]
+
+# Fetching partsupp for parts which is needed
+format_strings = ','.join(['%s'] * len(part_keys))
+mysql_cursor.execute(f"SELECT PS_PARTKEY, PS_SUPPKEY FROM partsupp WHERE PS_PARTKEY IN ({format_strings})", tuple(part_keys))
+partsupp_records = mysql_cursor.fetchall()
+
+supplier_keys = []
+for record in partsupp_records:
+    ps_partkey, ps_suppkey = record
+
+    # Getting the sum of L_QUANTITY from lineitem collection in MongoDB
+    l_quantity_sum = mongo_db.lineitem.aggregate([
+        {
+            '$match': {
+                'L_PARTKEY': ps_partkey,
+                'L_SUPPKEY': ps_suppkey,
+                'L_SHIPDATE': {'$gte': '1994-01-01', '$lt': '1995-01-01'}
+            }
+        },
+        {
+            '$group': {
+                '_id': None,
+                'total_quantity': {'$sum': '$L_QUANTITY'}
+            }
+        }
+    ])
+
+    total_quantity = list(l_quantity_sum)[0]['total_quantity'] if l_quantity_sum else 0
+
+    # Comparing PS_AVAILQTY to 0.5 * the sum of L_QUANTITY
+    if mysql_cursor.execute("SELECT 1 FROM partsupp WHERE PS_PARTKEY = %s AND PS_SUPPKEY = %s AND PS_AVAILQTY > %s", (ps_partkey, ps_suppkey, 0.5 * total_quantity)):
+        supplier_keys.append(ps_suppkey)
+
+# Fetching suppliers who are supplying the parts
+format_strings = ','.join(['%s'] * len(supplier_keys))
+mysql_cursor.execute(f"SELECT S_SUPPKEY, S_NAME, S_ADDRESS FROM supplier WHERE S_SUPPKEY IN ({format_strings})", tuple(supplier_keys))
+suppliers = mysql_cursor.fetchall()
+
+# Fetching nation names for supplier nation keys
+mysql_cursor.execute("SELECT N_NATIONKEY, N_NAME FROM nation WHERE N_NAME = 'CANADA'")
+nation_canada = mysql_cursor.fetchall()[0] if mysql_cursor.rowcount else (None, None)
+
+# Writing to CSV
+with open('query_output.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(['S_NAME', 'S_ADDRESS'])
+    for supplier in suppliers:
+        s_suppkey, s_name, s_address = supplier
+        if s_suppkey in supplier_keys and nation_canada[0] is not None:
+            writer.writerow([s_name, s_address])
+
+# Close connections
+mysql_cursor.close()
+mysql_conn.close()
+mongo_client.close()
+```
+
+2. Bash script to install all dependencies (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Ensure system packages are up-to-date
+sudo apt-get update -y
+
+# Install Python and pip if they are not installed
+sudo apt-get install python3-pip -y
+
+# Install pymysql for MySQL connections
+pip3 install pymysql
+
+# Install pymongo for MongoDB connections
+pip3 install pymongo
+```
+created_time, 1700095347
+completion_tokens, 759
+prompt_tokens, 684
+total_tokens, 1443
