@@ -1,0 +1,89 @@
+uid, chatcmpl-8PGSWWwJirXKYCrO022g18GLk6TKk
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: lineitem\nRelevant table names and their schemas in mysql:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: part\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    100.00 * SUM(CASE WHEN P_TYPE LIKE 'PROMO%' THEN L_EXTENDEDPRICE * (1 - L_DISCOUNT)\n    ELSE 0\n    END) / SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS PROMO_REVENUE\nFROM\n    lineitem,\n    part\nWHERE\n    L_PARTKEY = P_PARTKEY\n    AND L_SHIPDATE >= '1995-09-01'\n    AND L_SHIPDATE < '1995-10-01'\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 17.85114812850952
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code that fetches the data from the MySQL and Redis databases and computes the query:
+
+```python
+import pymysql
+import pandas as pd
+import direct_redis
+import csv
+from datetime import datetime
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch'
+)
+
+# Fetch lineitem data from MySQL
+mysql_query = """
+SELECT L_PARTKEY, L_EXTENDEDPRICE, L_DISCOUNT, L_SHIPDATE
+FROM lineitem
+WHERE L_SHIPDATE >= '1995-09-01' AND L_SHIPDATE < '1995-10-01'
+"""
+lineitem_df = pd.read_sql(mysql_query, mysql_conn)
+
+# Close MySQL connection
+mysql_conn.close()
+
+# Connect to Redis
+redis_conn = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Fetch part data from Redis
+part_keys = ["P_PARTKEY", "P_TYPE"]
+part_data = {}
+for key in part_keys:
+    part_data[key] = redis_conn.get(key)
+    if part_data[key] is not None:
+        part_data[key] = pd.read_json(part_data[key], orient='split')
+
+# Combine part columns into a single DataFrame
+part_df = pd.DataFrame(part_data)
+
+# Merge the DataFrames
+merged_df = pd.merge(lineitem_df, part_df, how='inner', left_on='L_PARTKEY', right_on='P_PARTKEY')
+
+# Calculate PROMO_REVENUE
+promo_revenue_df = merged_df.assign(
+    Revenue=lambda x: x.L_EXTENDEDPRICE * (1 - x.L_DISCOUNT)
+).assign(
+    PromoRevenue=lambda x: x.Revenue.where(merged_df.P_TYPE.str.startswith('PROMO'), 0)
+)
+
+promo_revenue_result = promo_revenue_df.PromoRevenue.sum() / promo_revenue_df.Revenue.sum() * 100.00
+promo_revenue = [{'PROMO_REVENUE': promo_revenue_result}]
+
+# Write result to CSV
+with open('query_output.csv', 'w', newline='') as csvfile:
+    writer = csv.DictWriter(csvfile, fieldnames=['PROMO_REVENUE'])
+    writer.writeheader()
+    writer.writerows(promo_revenue)
+
+```
+
+Here is a Bash script to install all dependencies:
+
+```bash
+#!/bin/bash
+# Set up a Python virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Install Python dependencies
+pip install pymysql pandas direct-redis
+```
+created_time, 1701032160
+completion_tokens, 537
+prompt_tokens, 532
+total_tokens, 1069

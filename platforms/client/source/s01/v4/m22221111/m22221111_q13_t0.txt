@@ -1,0 +1,98 @@
+uid, chatcmpl-8PE2si51rZBISDHYwrbg7bBezJJN7
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer, orders\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    C_COUNT,\n    COUNT(*) AS CUSTDIST\nFROM\n    (\n    SELECT\n        C_CUSTKEY,\n        COUNT(O_ORDERKEY) AS C_COUNT\n    FROM\n        customer LEFT OUTER JOIN orders ON\n        C_CUSTKEY = O_CUSTKEY\n        AND O_COMMENT NOT LIKE '%pending%deposits%'\n    GROUP BY\n        C_CUSTKEY\n    )   C_ORDERS\nGROUP BY\n    C_COUNT\nORDER BY\n    CUSTDIST DESC,\n    C_COUNT DESC\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 20.075080156326294
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code (`query_exec.py`):
+
+```python
+from pymongo import MongoClient
+import csv
+
+def connect_to_mongodb(host, port, db_name):
+    client = MongoClient(host, port)
+    db = client[db_name]
+    return db
+
+def aggregate_data(db):
+    pipeline = [
+        {
+            '$lookup': {
+                'from': 'orders',
+                'localField': 'C_CUSTKEY',
+                'foreignField': 'O_CUSTKEY',
+                'as': 'orders'
+            }
+        },
+        {
+            '$unwind': {
+                'path': '$orders',
+                'preserveNullAndEmptyArrays': True
+            }
+        },
+        {
+            '$match': {
+                'orders.O_COMMENT': {'$not': {'$regex': 'pending.*deposits'}}
+            }
+        },
+        {
+            '$group': {
+                '_id': '$C_CUSTKEY',
+                'C_COUNT': {'$sum': {'$cond': [{'$eq': ['$orders.O_ORDERKEY', None]}, 0, 1]}}
+            }
+        },
+        {
+            '$sort': {'_id': 1}
+        }
+    ]
+    return list(db.customer.aggregate(pipeline))
+
+def main():
+    mongodb_info = {
+        'host': 'mongodb',
+        'port': 27017,
+        'db_name': 'tpch'
+    }
+
+    db = connect_to_mongodb(**mongodb_info)
+    agg_data = aggregate_data(db)
+    cust_count = {}
+    for data in agg_data:
+        cust_count[data['C_COUNT']] = cust_count.get(data['C_COUNT'], 0) + 1
+
+    sorted_cust_count = sorted(cust_count.items(), key=lambda x: (-x[1], -x[0]))
+
+    with open('query_output.csv', 'w', newline='') as csvfile:
+        fieldnames = ['C_COUNT', 'CUSTDIST']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+        writer.writeheader()
+        for c_count, custdist in sorted_cust_count:
+            writer.writerow({'C_COUNT': c_count, 'CUSTDIST': custdist})
+
+main()
+```
+
+Next, the Bash script (`install_dependencies.sh`) to install the required dependencies:
+
+```bash
+#!/bin/bash
+# This script is used to install dependencies for running the provided Python script.
+
+# Update package lists
+sudo apt-get update
+
+# Install pip for Python3
+sudo apt-get install -y python3-pip
+
+# Install MongoDB driver for Python
+pip3 install pymongo
+```
+created_time, 1701022882
+completion_tokens, 526
+prompt_tokens, 399
+total_tokens, 925

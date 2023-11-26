@@ -1,0 +1,89 @@
+uid, chatcmpl-8PFgzVxqe0OmDUbBy1HYtCTbEXB1T
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: customer\nRelevant table names and their schemas in mysql:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: orders\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    CNTRYCODE,\n    COUNT(*) AS NUMCUST,\n    SUM(C_ACCTBAL) AS TOTACCTBAL\nFROM\n    (\n    SELECT\n        SUBSTR(C_PHONE, 1 , 2) AS CNTRYCODE,\n        C_ACCTBAL\n    FROM\n        customer\n    WHERE\n        SUBSTR(C_PHONE , 1 , 2) IN\n        ('20', '40', '22', '30', '39', '42', '21')\n    AND C_ACCTBAL > (\n            SELECT\n                AVG(C_ACCTBAL)\n            FROM\n                customer\n            WHERE\n                C_ACCTBAL > 0.00\n            AND SUBSTR(C_PHONE , 1 , 2) IN\n            ('20', '40', '22', '30', '39', '42', '21')\n    )\n    AND NOT EXISTS (\n        SELECT\n            *\n        FROM\n            orders\n        WHERE\n            O_CUSTKEY = C_CUSTKEY\n        )\n    ) AS CUSTSALE\nGROUP BY\n    CNTRYCODE\nORDER BY\n    CNTRYCODE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.92913317680359
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (save as `query_code.py`):
+
+```python
+import pandas as pd
+import pymysql
+import direct_redis
+import csv
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch',
+    cursorclass=pymysql.cursors.Cursor
+)
+
+# Connect to Redis
+redis_conn = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Get average account balance from MySQL
+with mysql_conn.cursor() as cursor:
+    cursor.execute(
+        """
+        SELECT AVG(C_ACCTBAL)
+        FROM customer
+        WHERE C_ACCTBAL > 0.00
+        AND SUBSTR(C_PHONE , 1 , 2) IN ('20', '40', '22', '30', '39', '42', '21')
+        """
+    )
+    avg_acctbal = cursor.fetchone()[0]
+
+# Get customer data from MySQL
+with mysql_conn.cursor() as cursor:
+    cursor.execute(
+        """
+        SELECT SUBSTR(C_PHONE, 1 , 2) AS CNTRYCODE, C_CUSTKEY, C_ACCTBAL
+        FROM customer
+        WHERE SUBSTR(C_PHONE , 1 , 2) IN ('20', '40', '22', '30', '39', '42', '21')
+        AND C_ACCTBAL > %s
+        """, (avg_acctbal,)
+    )
+    customers = cursor.fetchall()
+
+# Get orders data from Redis
+orders_df = pd.read_json(redis_conn.get('orders'), orient='records')
+
+# Filter out customers with orders
+cust_keys_with_orders = orders_df['O_CUSTKEY'].unique()
+customers_filtered = [
+    (cntrycode, acctbal) for cntrycode, custkey, acctbal in customers
+    if custkey not in cust_keys_with_orders
+]
+
+# Create DataFrame
+res_df = pd.DataFrame(customers_filtered, columns=['CNTRYCODE', 'C_ACCTBAL']).groupby('CNTRYCODE').agg(
+    NUMCUST=pd.NamedAgg(column='CNTRYCODE', aggfunc='count'),
+    TOTACCTBAL=pd.NamedAgg(column='C_ACCTBAL', aggfunc='sum')
+).reset_index()
+
+# Sort by CNTRYCODE
+res_df.sort_values(by='CNTRYCODE', inplace=True)
+
+# Write to query_output.csv
+res_df.to_csv('query_output.csv', index=False)
+
+# Closing connections
+mysql_conn.close()
+```
+
+And here is the bash script for installing all dependencies (save as `setup.sh`):
+
+```bash
+#!/bin/bash
+pip install pymysql pandas direct_redis
+```
+created_time, 1701029213
+completion_tokens, 558
+prompt_tokens, 624
+total_tokens, 1182

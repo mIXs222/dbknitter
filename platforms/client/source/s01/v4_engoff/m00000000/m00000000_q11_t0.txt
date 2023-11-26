@@ -1,76 +1,94 @@
-uid, chatcmpl-8PErXGpjzztbtKeQE2AwQupwbRy16
-message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, supplier, partsupp\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds the most important subset of suppliers' stock in GERMANY., The Important Stock Identification Query finds, from scanning the available stock of suppliers in GERMANY, all the parts that represent a significant percentage of the total value of all available parts. The query displays the part number and the value of those parts in descending order of value.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+uid, chatcmpl-8PHNFlzPFR9SndJ2lXGEfZlBpo2mG
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, supplier, partsupp\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds the most important subset of suppliers' stock in GERMANY., The Important Stock Identification Query finds, from scanning the available stock of suppliers in GERMANY, all the parts that represent a significant percentage (larger than 0.0001) of the total value of all available parts. The query displays the part number and the value of those parts in descending order of value.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
 input_message_len,[2]
 MAX_TOKEN, 2000
 data, 
-runtime, 13.912142038345337
+runtime, 18.615154027938843
 output_text, 
 gpt_model, gpt-4-1106-preview
 finished_reason, stop
-response, Here is the requested Python code (query_code.py):
+response, ### Python Code (`query.py`):
 
 ```python
 import pymysql
 import csv
 
-# Connection information
-conn_info = {
+# Connection parameters
+db_params = {
     'host': 'mysql',
     'user': 'root',
     'password': 'my-secret-pw',
-    'database': 'tpch',
+    'db': 'tpch',
+    'charset': 'utf8mb4',
 }
 
-# Establish connection to the MySQL database
-connection = pymysql.connect(**conn_info)
+# Connect to the mysql database
+conn = pymysql.connect(**db_params)
+cursor = conn.cursor()
 
-# SQL Query
+# Execute the query
 query = """
-SELECT P.PS_PARTKEY, SUM(P.PS_SUPPLYCOST * P.PS_AVAILQTY) AS TOTAL_VALUE
-FROM partsupp P
-JOIN supplier S ON P.PS_SUPPKEY = S.S_SUPPKEY
-JOIN nation N ON S.S_NATIONKEY = N.N_NATIONKEY
-WHERE N.N_NAME = 'GERMANY'
-GROUP BY P.PS_PARTKEY
-HAVING SUM(P.PS_SUPPLYCOST * P.PS_AVAILQTY) > (
-    SELECT SUM(P.PS_SUPPLYCOST * P.PS_AVAILQTY) / 10 FROM partsupp P
-    JOIN supplier S ON P.PS_SUPPKEY = S.S_SUPPKEY
-    JOIN nation N ON S.S_NATIONKEY = N.N_NATIONKEY
-    WHERE N.N_NAME = 'GERMANY'
-)
-ORDER BY TOTAL_VALUE DESC;
+SELECT
+    PS.PS_PARTKEY,
+    SUM(PS.PS_SUPPLYCOST * PS.PS_AVAILQTY) AS value
+FROM
+    partsupp PS
+JOIN
+    supplier S ON PS.PS_SUPPKEY = S.S_SUPPKEY
+JOIN
+    nation N ON S.S_NATIONKEY = N.N_NATIONKEY
+WHERE
+    N.N_NAME = 'GERMANY'
+GROUP BY
+    PS.PS_PARTKEY
+HAVING
+    SUM(PS.PS_SUPPLYCOST * PS.PS_AVAILQTY) > (
+        SELECT
+            SUM(PS.PS_SUPPLYCOST * PS.PS_AVAILQTY) * 0.0001
+        FROM
+            partsupp PS
+        JOIN
+            supplier S ON PS.PS_SUPPKEY = S.S_SUPPKEY
+        JOIN
+            nation N ON S.S_NATIONKEY = N.N_NATIONKEY
+        WHERE
+            N.N_NAME = 'GERMANY'
+    )
+ORDER BY
+    value DESC;
 """
 
-try:
-    with connection.cursor() as cursor:
-        cursor.execute(query)
-        result_set = cursor.fetchall()
+cursor.execute(query)
+result_set = cursor.fetchall()
 
-        # Write the query output to a CSV file
-        with open('query_output.csv', mode='w', newline='') as csvfile:
-            csv_writer = csv.writer(csvfile)
-            csv_writer.writerow(['PS_PARTKEY', 'TOTAL_VALUE'])
-            for row in result_set:
-                csv_writer.writerow(row)
-finally:
-    connection.close()
+# Write the query result to a CSV file
+with open('query_output.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(["PS_PARTKEY", "VALUE"])
+    for row in result_set:
+        writer.writerow(row)
+
+# Close the database connection
+cursor.close()
+conn.close()
 ```
 
-And here is the requested bash script to install all dependencies (install_dependencies.sh):
+### Bash Script (`install_dependencies.sh`):
 
 ```bash
 #!/bin/bash
 
-# Update package list
+# Update package list and upgrade existing packages
 sudo apt-get update
+sudo apt-get -y upgrade
 
-# Install pip for Python 3
-sudo apt-get install -y python3-pip
+# Install Python 3 and pip if they are not installed
+sudo apt-get install -y python3 python3-pip
 
-# Install pymysql via pip
+# Install pymysql library using pip
 pip3 install pymysql
 ```
-created_time, 1701026023
-completion_tokens, 424
-prompt_tokens, 380
-total_tokens, 804
+created_time, 1701035677
+completion_tokens, 469
+prompt_tokens, 390
+total_tokens, 859

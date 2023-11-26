@@ -1,0 +1,89 @@
+uid, chatcmpl-8PFuDeBFRdzkrK23qyCKCGWDyHN7g
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: orders\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: customer\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    C_COUNT,\n    COUNT(*) AS CUSTDIST\nFROM\n    (\n    SELECT\n        C_CUSTKEY,\n        COUNT(O_ORDERKEY) AS C_COUNT\n    FROM\n        customer LEFT OUTER JOIN orders ON\n        C_CUSTKEY = O_CUSTKEY\n        AND O_COMMENT NOT LIKE '%pending%deposits%'\n    GROUP BY\n        C_CUSTKEY\n    )   C_ORDERS\nGROUP BY\n    C_COUNT\nORDER BY\n    CUSTDIST DESC,\n    C_COUNT DESC\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 16.794936180114746
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code (`query_code.py`) to execute the query:
+
+```python
+import pymongo
+import redis
+import pandas as pd
+from direct_redis import DirectRedis
+
+# connect to MongoDB
+mongo_client = pymongo.MongoClient('mongodb://mongodb:27017/')
+mongo_db = mongo_client['tpch']
+orders_collection = mongo_db['orders']
+
+# get orders data from mongodb excluding comments with 'pending deposits'
+orders_pipeline = [
+    {
+        '$match': {
+            'O_COMMENT': {
+                '$not': {
+                    '$regex': 'pending.*deposits',
+                    '$options': 'i'  # Case insensitive
+                }
+            }
+        }
+    },
+    {
+        '$project': {
+            '_id': 0,
+            'O_ORDERKEY': 1,
+            'O_CUSTKEY': 1
+        }
+    }
+]
+orders_data = list(orders_collection.aggregate(orders_pipeline))
+df_orders = pd.DataFrame(orders_data)
+
+# connect to Redis
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# get customer data from redis
+customer_data = redis_client.get('customer')
+df_customers = pd.read_json(customer_data, orient='records')
+
+# merge and perform the query
+merged_df = pd.merge(
+    df_customers,
+    df_orders,
+    how='left',
+    left_on='C_CUSTKEY',
+    right_on='O_CUSTKEY'
+)
+
+counted_df = merged_df.groupby('C_CUSTKEY').agg(C_COUNT=('O_ORDERKEY', 'count')).reset_index()
+custdist_df = counted_df.groupby('C_COUNT').agg(CUSTDIST=('C_COUNT', 'count')).reset_index()
+
+# sort as per the given query
+custdist_df.sort_values(by=['CUSTDIST', 'C_COUNT'], ascending=[False, False], inplace=True)
+
+# write output to CSV
+custdist_df.to_csv('query_output.csv', index=False)
+```
+
+Here's the Bash script (`install_dependencies.sh`) to install all dependencies to run the Python code:
+
+```bash
+#!/bin/bash
+# Ubuntu/Debian system assumed
+set -e
+
+# Update system and install pip
+sudo apt update
+sudo apt install -y python3-pip
+
+# Install required Python packages
+pip3 install pymongo direct-redis pandas
+```
+created_time, 1701030033
+completion_tokens, 477
+prompt_tokens, 477
+total_tokens, 954

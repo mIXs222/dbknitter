@@ -1,0 +1,111 @@
+uid, chatcmpl-8PFM45II0x0EXaEqZM8IsbagNP5fq
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: part\nRelevant table names and their schemas in mysql:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    100.00 * SUM(CASE WHEN P_TYPE LIKE 'PROMO%' THEN L_EXTENDEDPRICE * (1 - L_DISCOUNT)\n    ELSE 0\n    END) / SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS PROMO_REVENUE\nFROM\n    lineitem,\n    part\nWHERE\n    L_PARTKEY = P_PARTKEY\n    AND L_SHIPDATE >= '1995-09-01'\n    AND L_SHIPDATE < '1995-10-01'\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 30.411303997039795
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`query_executor.py`):
+```python
+import pymysql
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Function to connect to MySQL
+def connect_to_mysql():
+    connection = pymysql.connect(host='mysql',
+                                 user='root',
+                                 password='my-secret-pw',
+                                 db='tpch',
+                                 charset='utf8mb4',
+                                 cursorclass=pymysql.cursors.Cursor)
+    return connection
+
+# Function to fetch data from MySQL
+def get_mysql_data(conn, query):
+    with conn.cursor() as cursor:
+        cursor.execute(query)
+        result = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+        return pd.DataFrame(result, columns=columns)
+
+# Function to connect to Redis
+def connect_to_redis():
+    return DirectRedis(host='redis', port=6379, db=0)
+
+# Function to fetch data from Redis as a DataFrame
+def get_redis_data(redis_client, key):
+    data = redis_client.get(key)
+    if data:
+        df = pd.read_json(data)
+        return df
+    else:
+        return pd.DataFrame()
+
+# Connect to the databases
+mysql_conn = connect_to_mysql()
+redis_client = connect_to_redis()
+
+# Query the data
+part_sql_query = """
+SELECT P_PARTKEY, P_TYPE
+FROM part;
+"""
+
+part_df = get_mysql_data(mysql_conn, part_sql_query)
+
+lineitem_df = get_redis_data(redis_client, 'lineitem')
+
+# Close MySQL Connection
+mysql_conn.close()
+
+# Join and process data
+merged_df = part_df.merge(lineitem_df, how='inner', left_on='P_PARTKEY', right_on='L_PARTKEY')
+
+filtered_df = merged_df[
+    (merged_df['L_SHIPDATE'] >= '1995-09-01') &
+    (merged_df['L_SHIPDATE'] < '1995-10-01')
+]
+
+# Calculate PROMO_REVENUE
+filtered_df['PROMO_REVENUE'] = filtered_df.apply(
+    lambda row: row['L_EXTENDEDPRICE'] * (1 - row['L_DISCOUNT']) if row['P_TYPE'].startswith('PROMO') else 0,
+    axis=1
+)
+
+total_revenue = filtered_df['L_EXTENDEDPRICE'] * (1 - filtered_df['L_DISCOUNT'])
+promo_revenue = filtered_df['PROMO_REVENUE']
+
+# Ensuring no division by zero
+result = (100.00 * promo_revenue.sum() / total_revenue.sum()) if total_revenue.sum() != 0 else 0
+result_df = pd.DataFrame({'PROMO_REVENUE': [result]})
+
+# Output result to CSV
+result_df.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script (`install_dependencies.sh`):
+```bash
+#!/bin/bash
+
+# Ensure script is run as root
+if [[ $EUID -ne 0 ]]; then
+   echo "This script must be run as root" 
+   exit 1
+fi
+
+# Install Python and pip
+apt-get update && apt-get install -y python3 python3-pip
+
+# Install pymysql and pandas Python libraries
+pip3 install pymysql pandas
+
+# Install the direct_redis Python library 
+pip3 install git+https://github.com/pfreixes/direct_redis
+```
+created_time, 1701027916
+completion_tokens, 683
+prompt_tokens, 532
+total_tokens, 1215

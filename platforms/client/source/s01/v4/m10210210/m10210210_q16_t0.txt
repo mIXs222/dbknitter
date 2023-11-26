@@ -1,0 +1,84 @@
+uid, chatcmpl-8PFEIuv51pqsBLdZ0JwqZHKPNIMpi
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: partsupp\nRelevant table names and their schemas in mysql:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: supplier\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: part\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    P_BRAND,\n    P_TYPE,\n    P_SIZE,\n    COUNT(DISTINCT PS_SUPPKEY) AS SUPPLIER_CNT\nFROM\n    partsupp,\n    part\nWHERE\n    P_PARTKEY = PS_PARTKEY\n    AND P_BRAND <> 'Brand#45'\n    AND P_TYPE NOT LIKE 'MEDIUM POLISHED%'\n    AND P_SIZE IN (49, 14, 23, 45, 19, 3, 36, 9)\n    AND PS_SUPPKEY NOT IN (\n        SELECT\n            S_SUPPKEY\n        FROM\n            supplier\n        WHERE\n            S_COMMENT LIKE '%Customer%Complaints%'\n    )\nGROUP BY\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\nORDER BY\n    SUPPLIER_CNT DESC,\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 22.757052898406982
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code that achieves the required functionality:
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+
+# MySQL connection
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    database='tpch',
+)
+
+# MongoDB connection
+mongo_client = pymongo.MongoClient('mongodb', 27017)
+mongo_db = mongo_client['tpch']
+
+# Redis connection
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# Load data from MySQL
+with mysql_conn.cursor() as cursor:
+    cursor.execute("SELECT PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY FROM partsupp")
+    partsupp_data = cursor.fetchall()
+partsupp_df = pd.DataFrame(partsupp_data, columns=['P_PARTKEY', 'PS_SUPPKEY', 'PS_AVAILQTY'])
+
+# Load data from MongoDB
+supplier_data = list(mongo_db['supplier'].find({}, {'_id': 0, 'S_SUPPKEY': 1, 'S_COMMENT': 1}))
+supplier_df = pd.DataFrame(supplier_data)
+
+# Load data from Redis
+part_df = pd.read_json(redis_conn.get('part'), orient='records')
+
+# Filter out suppliers with complaints
+filtered_supplier_df = supplier_df[~supplier_df['S_COMMENT'].str.contains('Customer.*Complaints')]
+
+# Merge and perform the query
+merged_df = partsupp_df.merge(part_df, how='inner', left_on='PS_PARTKEY', right_on='P_PARTKEY')
+merged_df = merged_df[merged_df['P_BRAND'] != 'Brand#45']
+merged_df = merged_df[~merged_df['P_TYPE'].str.startswith('MEDIUM POLISHED')]
+merged_df = merged_df[merged_df['P_SIZE'].isin([49, 14, 23, 45, 19, 3, 36, 9])]
+filtered_supplier_keys = filtered_supplier_df['S_SUPPKEY']
+merged_df = merged_df[~merged_df['PS_SUPPKEY'].isin(filtered_supplier_keys)]
+
+# Group by and aggregate the count of suppliers
+result_df = merged_df.groupby(['P_BRAND', 'P_TYPE', 'P_SIZE']) \
+                     .agg(SUPPLIER_CNT=('PS_SUPPKEY', 'nunique')) \
+                     .reset_index()
+
+# Sort the result
+result_df.sort_values(by=['SUPPLIER_CNT', 'P_BRAND', 'P_TYPE', 'P_SIZE'], ascending=[False, True, True, True], inplace=True)
+
+# Write to CSV
+result_df.to_csv('query_output.csv', index=False)
+
+# Close connections
+mysql_conn.close()
+mongo_client.close()
+redis_conn.close()
+```
+And for the bash script to install all dependencies to run the above Python code:
+
+```bash
+#!/bin/bash
+pip install pymysql pandas pymongo direct_redis
+```
+
+Please save each of the above blocks of code/text in their respective `.py` and `.sh` files to use them.
+created_time, 1701027434
+completion_tokens, 625
+prompt_tokens, 649
+total_tokens, 1274

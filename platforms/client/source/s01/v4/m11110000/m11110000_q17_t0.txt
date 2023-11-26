@@ -1,0 +1,114 @@
+uid, chatcmpl-8PDUT2cPt3Qsmr8Ppg1mUdKuacTAt
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: lineitem\nRelevant table names and their schemas in mysql:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: part\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    SUM(L_EXTENDEDPRICE) / 7.0 AS AVG_YEARLY\nFROM\n    lineitem,\n    part\nWHERE\n    P_PARTKEY = L_PARTKEY\n    AND P_BRAND = 'Brand#23'\n    AND P_CONTAINER = 'MED BAG'\n    AND L_QUANTITY < (\n        SELECT\n            0.2 * AVG(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = P_PARTKEY\n    )\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 27.038594961166382
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code to execute the given query across the different database platforms:
+
+File: `execute_query.py`
+```python
+import pymysql
+import pymongo
+import csv
+
+# Function to connect to MySQL and get the lineitem data
+def get_mysql_data():
+    connection = pymysql.connect(host='mysql',
+                                 user='root',
+                                 password='my-secret-pw',
+                                 database='tpch')
+    cursor = connection.cursor()
+    query = """
+    SELECT
+        L_PARTKEY, L_EXTENDEDPRICE, L_QUANTITY
+    FROM
+        lineitem
+    """
+    cursor.execute(query)
+    lineitem_data = cursor.fetchall()
+    cursor.close()
+    connection.close()
+    return lineitem_data
+
+# Function to connect to MongoDB and get the part data
+def get_mongodb_data():
+    client = pymongo.MongoClient('mongodb', 27017)
+    db = client['tpch']
+    part_data = list(db.part.find(
+        {
+            'P_BRAND': 'Brand#23',
+            'P_CONTAINER': 'MED BAG'
+        },
+        {
+            '_id': 0,
+            'P_PARTKEY': 1
+        }
+    ))
+    client.close()
+    return part_data
+
+# Function to calculate AVG_YEARLY
+def calculate_avg_yearly(lineitem_data, part_data):
+    # Convert part_data to a dictionary for faster lookup
+    part_keys = {part['P_PARTKEY'] for part in part_data}
+    
+    # Calculate average quantity for each part
+    part_avg_qty = {}
+    for part_key in part_keys:
+        part_qty = [qty for (pkey, price, qty) in lineitem_data if pkey == part_key]
+        if part_qty:
+            part_avg_qty[part_key] = sum(part_qty) / len(part_qty)
+    
+    # Calculate SUM(L_EXTENDEDPRICE) for qualified line items
+    total_extended_price = 0.0
+    for (pkey, price, qty) in lineitem_data:
+        if pkey in part_keys and qty < 0.2 * part_avg_qty[pkey]:
+            total_extended_price += price
+
+    # Calculate AVG_YEARLY
+    avg_yearly = total_extended_price / 7.0
+    return avg_yearly
+
+# Main code execution
+def main():
+    # Retrieve data from databases
+    lineitem_data = get_mysql_data()
+    part_data = get_mongodb_data()
+
+    # Perform the calculation for AVG_YEARLY
+    avg_yearly = calculate_avg_yearly(lineitem_data, part_data)
+
+    # Output result to a CSV file
+    with open('query_output.csv', 'w', newline='') as csvfile:
+        fieldnames = ['AVG_YEARLY']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow({'AVG_YEARLY': avg_yearly})
+
+if __name__ == "__main__":
+    main()
+```
+
+And here's the bash script to install all necessary dependencies to run that Python code:
+
+File: `install_dependencies.sh`
+```bash
+#!/bin/bash
+
+# Update package list
+apt-get update
+
+# Install Python3 and pip if they are not installed
+apt-get -y install python3 python3-pip
+
+# Install required Python libraries
+pip3 install pymysql pymongo
+```
+created_time, 1701020749
+completion_tokens, 680
+prompt_tokens, 509
+total_tokens, 1189

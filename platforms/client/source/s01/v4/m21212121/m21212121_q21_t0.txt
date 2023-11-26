@@ -1,0 +1,108 @@
+uid, chatcmpl-8PH6a6SFMlYWtg5ykoxWj9bspqcn0
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: supplier, lineitem\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, orders\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    S_NAME,\n    COUNT(*) AS NUMWAIT\nFROM\n    supplier,\n    lineitem AS L1,\n    orders,\n    nation\nWHERE\n    S_SUPPKEY = L1.L_SUPPKEY\n    AND O_ORDERKEY = L1.L_ORDERKEY\n    AND O_ORDERSTATUS = 'F'\n    AND L1.L_RECEIPTDATE > L1.L_COMMITDATE\n    AND EXISTS (\n        SELECT\n            *\n        FROM\n            lineitem AS L2\n        WHERE\n            L2.L_ORDERKEY = L1.L_ORDERKEY\n            AND L2.L_SUPPKEY <> L1.L_SUPPKEY\n    )\n    AND NOT EXISTS (\n        SELECT\n            *\n        FROM\n            lineitem AS L3\n        WHERE\n            L3.L_ORDERKEY = L1.L_ORDERKEY\n            AND L3.L_SUPPKEY <> L1.L_SUPPKEY\n            AND L3.L_RECEIPTDATE > L3.L_COMMITDATE\n        )\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_NAME = 'SAUDI ARABIA'\nGROUP BY\n    S_NAME\n    ORDER BY\n    NUMWAIT DESC,\n    S_NAME\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 24.1478590965271
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code you requested to execute the distributed query:
+
+```python
+# query.py
+
+import pymongo
+import pandas as pd
+import direct_redis
+from datetime import datetime
+
+
+def fetch_mongodb_data(mongo_client):
+    db = mongo_client['tpch']
+    supplier_df = pd.DataFrame(list(db.supplier.find(
+        {}, {'_id': 0, 'S_SUPPKEY': 1, 'S_NAME': 1, 'S_NATIONKEY': 1})))
+    lineitem_df = pd.DataFrame(list(db.lineitem.find(
+        {}, {'_id': 0, 'L_ORDERKEY': 1, 'L_SUPPKEY': 1, 'L_RECEIPTDATE': 1, 'L_COMMITDATE': 1})))
+
+    return supplier_df, lineitem_df
+
+
+def fetch_redis_data(redis_client):
+    nation_df = pd.read_msgpack(redis_client.get('nation'))
+    orders_df = pd.read_msgpack(redis_client.get('orders'))
+    return nation_df, orders_df
+
+
+def perform_query(supplier_df, lineitem_df, orders_df, nation_df):
+    # Merge dataframes to simulate tables join
+    merged_df = supplier_df.merge(lineitem_df, left_on='S_SUPPKEY', right_on='L_SUPPKEY')
+    merged_df = merged_df.merge(orders_df, how='inner', left_on='L_ORDERKEY', right_on='O_ORDERKEY')
+    merged_df = merged_df.merge(nation_df, how='inner', left_on='S_NATIONKEY', right_on='N_NATIONKEY')
+    
+    # Query conditions
+    filtered_df = merged_df.query(
+        "O_ORDERSTATUS == 'F' and L_RECEIPTDATE > L_COMMITDATE and N_NAME == 'SAUDI ARABIA'")
+
+    # Subquery simulation
+    subquery = lineitem_df[lineitem_df['L_SUPPKEY'] != lineitem_df['L_SUPPKEY']].drop_duplicates('L_ORDERKEY')
+    filtered_df = filtered_df[filtered_df['L_ORDERKEY'].isin(subquery['L_ORDERKEY'])]
+
+    not_subquery = lineitem_df[(lineitem_df['L_SUPPKEY'] != lineitem_df['L_SUPPKEY']) &
+                               (lineitem_df['L_RECEIPTDATE'] > lineitem_df['L_COMMITDATE'])]
+    filtered_df = filtered_df[~filtered_df['L_ORDERKEY'].isin(not_subquery['L_ORDERKEY'])]
+
+    # Group by and count
+    result_df = filtered_df.groupby('S_NAME').size().reset_index(name='NUMWAIT')
+
+    # Sorting the results
+    result_df = result_df.sort_values(by=['NUMWAIT', 'S_NAME'], ascending=[False, True])
+
+    return result_df
+
+
+def main():
+    # Connect to MongoDB
+    mongo_client = pymongo.MongoClient('mongodb', 27017)
+
+    # Connect to Redis
+    redis_client = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+    # Fetch data from databases
+    supplier_df, lineitem_df = fetch_mongodb_data(mongo_client)
+    nation_df, orders_df = fetch_redis_data(redis_client)
+
+    # Perform the query
+    result_df = perform_query(supplier_df, lineitem_df, orders_df, nation_df)
+
+    # Write result to CSV
+    result_df.to_csv('query_output.csv', index=False)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+And here is the bash script with the commands to install all the necessary dependencies:
+
+```bash
+#!/bin/bash
+
+# install_dependencies.sh
+
+# Set up a Python virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install Python dependencies
+pip install pymongo pandas redis msgpack direct_redis
+
+# Deactivate virtual environment
+deactivate
+```
+
+Make sure to make the bash script executable with `chmod +x install_dependencies.sh`.
+created_time, 1701034644
+completion_tokens, 811
+prompt_tokens, 711
+total_tokens, 1522

@@ -1,0 +1,90 @@
+uid, chatcmpl-8PEOhrKn0XIZD0j77PWBAbEDCfSxK
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: part, partsupp\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: supplier\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    P_BRAND,\n    P_TYPE,\n    P_SIZE,\n    COUNT(DISTINCT PS_SUPPKEY) AS SUPPLIER_CNT\nFROM\n    partsupp,\n    part\nWHERE\n    P_PARTKEY = PS_PARTKEY\n    AND P_BRAND <> 'Brand#45'\n    AND P_TYPE NOT LIKE 'MEDIUM POLISHED%'\n    AND P_SIZE IN (49, 14, 23, 45, 19, 3, 36, 9)\n    AND PS_SUPPKEY NOT IN (\n        SELECT\n            S_SUPPKEY\n        FROM\n            supplier\n        WHERE\n            S_COMMENT LIKE '%Customer%Complaints%'\n    )\nGROUP BY\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\nORDER BY\n    SUPPLIER_CNT DESC,\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 30.94689631462097
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code that works with the given scenario:
+
+```python
+# filename: query_mongodb_redis.py
+from pymongo import MongoClient
+import direct_redis
+import pandas as pd
+
+# MongoDB connection
+mongo_client = MongoClient("mongodb", 27017)
+mongo_db = mongo_client["tpch"]
+part_collection = mongo_db["part"]
+partsupp_collection = mongo_db["partsupp"]
+
+# Redis connection using direct_redis
+redis_client = direct_redis.DirectRedis(host="redis", port=6379, db=0)
+
+# Fetch data from MongoDB
+parts_query = {
+    'P_BRAND': {'$ne': 'Brand#45'},
+    'P_TYPE': {'$not': {'$regex': '^MEDIUM POLISHED'}},
+    'P_SIZE': {'$in': [49, 14, 23, 45, 19, 3, 36, 9]}
+}
+parts_df = pd.DataFrame(list(part_collection.find(parts_query, projection={'_id': False})))
+
+# Fetch data from partsupp MongoDB
+partsupp_df = pd.DataFrame(list(partsupp_collection.find(projection={'_id': False})))
+
+# Fetch Supplier data from Redis and convert to DataFrame
+supplier_data = redis_client.get('supplier')
+supplier_df = pd.read_json(supplier_data)
+supplier_df = supplier_df[supplier_df['S_COMMENT'].str.contains('Customer.*Complaints')]
+
+# Merge parts and partsupp on part key
+merged_df = pd.merge(partsupp_df, parts_df, left_on='PS_PARTKEY', right_on='P_PARTKEY')
+
+# Remove suppliers with Customer Complaints
+merged_df = merged_df[~merged_df['PS_SUPPKEY'].isin(supplier_df['S_SUPPKEY'])]
+
+# Group by specified fields and count unique suppliers
+result_df = merged_df.groupby(['P_BRAND', 'P_TYPE', 'P_SIZE']).agg(SUPPLIER_CNT=('PS_SUPPKEY', 'nunique'))
+
+# Sort the results
+result_df = result_df.reset_index().sort_values(by=['SUPPLIER_CNT', 'P_BRAND', 'P_TYPE', 'P_SIZE'], ascending=[False, True, True, True])
+
+# Write to CSV file
+result_df.to_csv('query_output.csv', index=False)
+```
+
+Now, for the Bash script to install all dependencies needed to run the Python code:
+
+```bash
+# filename: install_dependencies.sh
+#!/bin/bash
+
+# Update package lists
+sudo apt-get update
+
+# Install Python3 and pip if they are not installed
+sudo apt-get install -y python3 python3-pip
+
+# Make sure pip is up-to-date
+pip3 install --upgrade pip
+
+# Install required Python packages
+pip3 install pymongo==3.12.3
+pip3 install direct_redis
+pip3 install pandas
+```
+
+Please make sure this script has execution permissions:
+
+```bash
+chmod +x install_dependencies.sh
+```
+
+Give the script execution permissions before running it. Also, remember that you need to run the script with sufficient permissions to install packages.
+created_time, 1701024235
+completion_tokens, 626
+prompt_tokens, 565
+total_tokens, 1191

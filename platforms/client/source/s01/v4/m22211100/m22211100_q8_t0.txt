@@ -1,0 +1,141 @@
+uid, chatcmpl-8PGQVGL1dZFQz3sK7YTpNN5uX7JeV
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: orders, lineitem\nRelevant table names and their schemas in mysql:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: supplier, customer\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, region, part\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    O_YEAR,\n    SUM(CASE WHEN NATION = 'INDIA' THEN VOLUME ELSE 0 END) / SUM(VOLUME) AS MKT_SHARE\nFROM\n    (\n    SELECT\n        strftime('%Y', O_ORDERDATE) AS O_YEAR,\n        L_EXTENDEDPRICE * (1 - L_DISCOUNT) AS VOLUME,\n        N2.N_NAME AS NATION\n    FROM\n        part,\n        supplier,\n        lineitem,\n        orders,\n        customer,\n        nation n1,\n        nation n2,\n        region\n    WHERE\n        P_PARTKEY = L_PARTKEY\n        AND S_SUPPKEY = L_SUPPKEY\n        AND L_ORDERKEY = O_ORDERKEY\n        AND O_CUSTKEY = C_CUSTKEY\n        AND C_NATIONKEY = N1.N_NATIONKEY\n        AND N1.N_REGIONKEY = R_REGIONKEY\n        AND R_NAME = 'ASIA'\n        AND S_NATIONKEY = N2.N_NATIONKEY\n        AND O_ORDERDATE BETWEEN '1995-01-01' AND '1996-12-31'\n        AND P_TYPE = 'SMALL PLATED COPPER'\n    ) AS ALL_NATIONS\nGROUP BY\n    O_YEAR\n    ORDER BY\n    O_YEAR\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 28.093719959259033
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python Code (query_execution.py):
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+from datetime import datetime
+
+# MySQL connection
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    database='tpch'
+)
+cursor = mysql_conn.cursor()
+
+# MongoDB connection
+mongo_client = pymongo.MongoClient('mongodb', 27017)
+mongodb = mongo_client['tpch']
+supplier_collection = mongodb['supplier']
+customer_collection = mongodb['customer']
+
+# Redis connection
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# Fetch data from Redis
+def fetch_redis_data(table):
+    return pd.read_json(redis_conn.get(table), orient='records')
+
+# Query each database and collect relevant data
+# MySQL
+mysql_query = """
+SELECT
+    O_ORDERDATE,
+    L_EXTENDEDPRICE,
+    L_DISCOUNT,
+    L_PARTKEY,
+    L_SUPPKEY,
+    O_ORDERKEY,
+    O_CUSTKEY
+FROM
+    orders, lineitem
+WHERE
+    L_ORDERKEY = O_ORDERKEY
+    AND O_ORDERDATE BETWEEN '1995-01-01' AND '1996-12-31'
+"""
+cursor.execute(mysql_query)
+orders_lineitem_data = cursor.fetchall()
+
+# MongoDB
+supplier_data = list(supplier_collection.find())
+customer_data = list(customer_collection.find())
+
+# Redis
+nation_data = fetch_redis_data('nation')
+region_data = fetch_redis_data('region')
+part_data = fetch_redis_data('part')
+
+cursor.close()
+mysql_conn.close()
+
+# Convert to DataFrames
+df_orders_lineitem = pd.DataFrame(orders_lineitem_data, columns=['O_ORDERDATE', 'L_EXTENDEDPRICE', 'L_DISCOUNT', 'L_PARTKEY', 'L_SUPPKEY', 'O_ORDERKEY', 'O_CUSTKEY'])
+df_supplier = pd.DataFrame(supplier_data)
+df_customer = pd.DataFrame(customer_data)
+df_nation = nation_data
+df_region = region_data
+df_part = part_data
+
+# Filter out parts for 'P_TYPE = 'SMALL PLATED COPPER''
+df_part = df_part[df_part['P_TYPE'] == 'SMALL PLATED COPPER']
+
+# Merge and calculate VOLUME
+df = pd.merge(df_orders_lineitem, df_part, left_on='L_PARTKEY', right_on='P_PARTKEY')
+df['VOLUME'] = df['L_EXTENDEDPRICE'] * (1 - df['L_DISCOUNT'])
+
+# Merge with customer and nation
+df = df.merge(df_customer, left_on='O_CUSTKEY', right_on='C_CUSTKEY')
+df = df.merge(df_nation.rename(columns={'N_NATIONKEY': 'C_NATIONKEY', 'N_NAME': 'NATION'}), on='C_NATIONKEY')
+
+# Merge supplier and nation
+df_supplier = df_supplier.merge(df_nation.rename(columns={'N_NATIONKEY': 'S_NATIONKEY', 'N_NAME': 'NATION'}), on='S_NATIONKEY')
+df = df.merge(df_supplier, on='L_SUPPKEY')
+
+# Merge with region and filter for R_NAME = 'ASIA'
+df_region_asia = df_region[df_region['R_NAME'] == 'ASIA']
+df = df.merge(df_region_asia, left_on='C_NATIONKEY', right_on='R_REGIONKEY')
+
+# Extract year and perform aggregation
+df['O_YEAR'] = pd.to_datetime(df['O_ORDERDATE']).dt.year
+df_result = df.groupby('O_YEAR').apply(
+    lambda x: pd.Series({
+        'MKT_SHARE': (x.loc[x['NATION'] == 'INDIA', 'VOLUME'].sum()) / x['VOLUME'].sum()
+    })
+).reset_index()
+
+# Write result to CSV
+df_result.to_csv('query_output.csv', index=False)
+```
+
+2. Bash Script (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+
+# Update package list
+apt-get update
+
+# Install Python
+apt-get install -y python3 python3-pip
+
+# Install Python dependencies
+pip3 install pymysql pymongo pandas
+
+# Clone the repository with the modified Redis-py library
+git clone https://github.com/datasets-io/direct_redis.git
+cd direct_redis
+
+# Install the modified Redis-py library
+python3 setup.py install
+
+# Go back to the original directory
+cd ..
+```
+
+Save each of these scripts in their respective files (`query_execution.py` and `install_dependencies.sh`) and give them the appropriate execution permissions for the bash script using `chmod +x install_dependencies.sh`. Make sure to run the bash script before attempting to run the Python script in order to have all the necessary dependencies installed.
+created_time, 1701032035
+completion_tokens, 974
+prompt_tokens, 901
+total_tokens, 1875

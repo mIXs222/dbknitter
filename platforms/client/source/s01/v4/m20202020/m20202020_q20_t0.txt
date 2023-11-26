@@ -1,0 +1,101 @@
+uid, chatcmpl-8PEZmiWWJwiOEFHNwvGG1QbrVSWhS
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: supplier, lineitem\nRelevant table names and their schemas in mysql:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: nation, part, partsupp\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    S_NAME,\n    S_ADDRESS\nFROM\n    supplier,\n    nation\nWHERE\n    S_SUPPKEY IN (\n    SELECT\n        PS_SUPPKEY\n    FROM\n        partsupp\n    WHERE\n    PS_PARTKEY IN (\n        SELECT\n            P_PARTKEY\n        FROM\n            part\n        WHERE\n            P_NAME LIKE 'forest%'\n    )\n    AND PS_AVAILQTY > (\n        SELECT\n            0.5 * SUM(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = PS_PARTKEY\n        AND L_SUPPKEY = PS_SUPPKEY\n        AND L_SHIPDATE >= '1994-01-01'\n        AND L_SHIPDATE < '1995-01-01'\n        )\n    )\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_NAME = 'CANADA'\nORDER BY\n    S_NAME\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 32.64195203781128
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code that should accomplish the task (`query_exec.py`):
+
+```python
+import pymysql
+import pandas as pd
+import direct_redis
+
+# Establish a connection to MySQL database
+mysql_connection = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch',
+)
+
+# Creating a function to read data from Redis
+def read_from_redis(table_name):
+    redis_conn = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+    df_bytes = redis_conn.get(table_name)
+    if df_bytes:
+        df = pd.read_msgpack(df_bytes)
+        return df
+    else:
+        return pd.DataFrame()
+
+# Read the needed tables from MySQL
+with mysql_connection.cursor() as cursor:
+    # Read supplier table
+    cursor.execute("SELECT S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY FROM supplier")
+    supplier_data = cursor.fetchall()
+    df_supplier = pd.DataFrame(list(supplier_data), columns=['S_SUPPKEY', 'S_NAME', 'S_ADDRESS', 'S_NATIONKEY'])
+    # Read lineitem table
+    cursor.execute("SELECT L_PARTKEY, L_SUPPKEY, L_QUANTITY, L_SHIPDATE FROM lineitem WHERE L_SHIPDATE >= '1994-01-01' AND L_SHIPDATE < '1995-01-01'")
+    lineitem_data = cursor.fetchall()
+    df_lineitem = pd.DataFrame(list(lineitem_data), columns=['L_PARTKEY', 'L_SUPPKEY', 'L_QUANTITY', 'L_SHIPDATE'])
+
+# Close MySQL connection
+mysql_connection.close()
+
+# Read the needed tables from Redis
+df_nation = read_from_redis('nation')
+df_part = read_from_redis('part')
+df_partsupp = read_from_redis('partsupp')
+
+# Processing the data
+# Filtering parts with names starting with 'forest'
+part_forest = df_part[df_part['P_NAME'].str.startswith('forest')]
+
+# Joining part and partsupp tables on partkey
+part_partsupp = pd.merge(part_forest, df_partsupp, left_on='P_PARTKEY', right_on='PS_PARTKEY')
+
+# Calculating half of the sum of quantities from lineitem for each partkey and suppkey
+lineitem_agg = df_lineitem.groupby(['L_PARTKEY', 'L_SUPPKEY']).agg({'L_QUANTITY': 'sum'}).reset_index()
+lineitem_agg['HALF_QUANTITY'] = 0.5 * lineitem_agg['L_QUANTITY']
+
+# Filtering partsupp with available quantity greater than half the sum of quantities of lineitems
+qualified_partsupp = part_partsupp[part_partsupp.apply(lambda x: x['PS_AVAILQTY'] > lineitem_agg[(lineitem_agg['L_PARTKEY'] == x['PS_PARTKEY']) & (lineitem_agg['L_SUPPKEY'] == x['PS_SUPPKEY'])]['HALF_QUANTITY'].values[0], axis=1)]
+
+# Filtering supplier for those available in qualified_partsupp
+qualified_suppliers = df_supplier[df_supplier['S_SUPPKEY'].isin(qualified_partsupp['PS_SUPPKEY'])]
+
+# Joining qualified suppliers with nation
+final_df = qualified_suppliers.merge(df_nation[df_nation['N_NAME'] == 'CANADA'], left_on='S_NATIONKEY', right_on='N_NATIONKEY', how='inner')
+
+# Selecting relevant columns and sorting by supplier name
+result = final_df[['S_NAME', 'S_ADDRESS']].sort_values(by='S_NAME')
+
+# Writing the result to a CSV file
+result.to_csv('query_output.csv', index=False)
+```
+
+And here is the bash script with the dependencies (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Updating the package lists for upgrades for packages that need upgrading, as well as new package installations.
+sudo apt update && sudo apt upgrade -y
+
+# Installing python3 and pip if they are not installed
+sudo apt install python3 python3-pip -y
+
+# Upgrade pip to the latest version
+pip3 install --upgrade pip
+
+# Installing required Python libraries
+pip3 install pymysql pandas redis direct_redis
+```
+created_time, 1701024922
+completion_tokens, 867
+prompt_tokens, 698
+total_tokens, 1565

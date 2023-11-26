@@ -838,6 +838,10 @@ class GPT:
                 num_tries -= 1
                 print(f"ERROR sleeping due to rate limiting ({e}). {num_tries} tries left.")
                 time.sleep(30)
+            except Exception as e:
+                num_tries -= 1
+                print(f"ERROR sleeping due to other errors {type(e)}: {e}). {num_tries} tries left.")
+                time.sleep(30)
         # mongodb_code = gpt_output['choices'][0]['text']
         #print("********************")
         #print("** chatgpt output **")
