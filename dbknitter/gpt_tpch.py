@@ -7,7 +7,7 @@ import argparse
 import sys
 from itertools import islice, product
 
-from dbknitter.tpch_queries import tpch_queries
+from dbknitter.tpch_queries import tpch_queries_sql, tpch_queries_eng_official, tpch_queries_eng_manual
 
 ## python dbknitter/gpt_tpch.py batch --output_dir platforms/client/source/s01/v1_9   --db_splits_file  db_splits.txt  --api_key  <give_your_key>
 ## OR
@@ -186,9 +186,15 @@ class TPCHSetup:
             yield "".join(map(str, platform_idxs)), table_lists[0], table_lists[1], table_lists[2]
 
     @staticmethod
-    def iter_all_queries():
+    def iter_all_queries(query_language):
+        query_dict = (
+            tpch_queries_sql if query_language == "sql" else (
+            tpch_queries_eng_official if query_language == "eng-official" else (
+            tpch_queries_eng_manual if query_language == "eng-manual" else (
+            {}  # invalid query_language
+        ))))
         for qidx in range(1, 22 + 1):
-            yield qidx, tpch_queries[qidx]
+            yield qidx, query_dict[qidx]
 
     @staticmethod
     def mysql_admin():  # from platforms/mysql/tpch_init.sh AND cloudlab/docker-compose.yml
@@ -680,13 +686,36 @@ class Prompt:
                 
         
         return config_info
+
+    def wrap_query(self, q, query_language):
+        if query_language == "sql":
+            return (
+                "```sql\n" + \
+                q + "\n" + \
+                "```"
+            )
+        elif query_language in ("eng-official", "eng-manual"):
+            return (
+                "```english\n" + \
+                q + "\n" + \
+                "```"
+            )
+        else:
+            raise ValueError(f"Invalid query_language {query_language}")
     
-    def gen_full_prompt(self, query, qidx, isfile=False):
+    def gen_full_prompt(self, query, qidx, query_language, isfile=False):
         assert type(qidx) == type(1)
   
         q = get_query(query, isfile)
+        wrapped_q = self.wrap_query(q, query_language)
         
-        prompt =  self.conf_info + "\n" + self.query_pref + f"\n```sql\n" + q + "\n```\n" + self.output_spec + "\n" + self.note_info
+        prompt =  (
+            self.conf_info + "\n" + \
+            self.query_pref + "\n" + \
+            wrapped_q + "\n" + \
+            self.output_spec + "\n" + \
+            self.note_info
+        )
         return prompt
 
 #####################################################################################################
@@ -878,6 +907,9 @@ def main_batch(argv):
     
     parser.add_argument("--api_key", type=str, default=openai.api_key,
                         help="Chatgpt api key")
+
+    parser.add_argument("--query_language", type=str, default="sql",  # sql, eng-official, eng-manual
+                        help="Query language [sql, eng-official, eng-manual]")
     
     args = parser.parse_args(argv)
     output_dir = Path(args.output_dir)
@@ -892,6 +924,10 @@ def main_batch(argv):
     else:
         print("Table splits among databases not given")
         return
+
+    query_language = args.query_language
+    if query_language not in ["sql", "eng-official", "eng-manual"]:
+        print(f"Invalid query_language {query_language}")
 
     chatgpt_api_key = args.api_key    
 
@@ -908,8 +944,8 @@ def main_batch(argv):
 
     for midx, mysql_tables, mongodb_tables, redis_tables in TPCHSetup.iter_all_mappings(splits):  # all mappings
     # for midx, mysql_tables, mongodb_tables, redis_tables in islice(TPCHSetup.iter_all_mappings(), 3):
-        for qidx, query_sql in TPCHSetup.iter_all_queries():  # all 22 queries
-        # for qidx, query_sql in islice(TPCHSetup.iter_all_queries(), 2):
+        for qidx, query_statement in TPCHSetup.iter_all_queries(query_language):  # all 22 queries
+        # for qidx, query_statement in islice(TPCHSetup.iter_all_queries(query_language), 2):
             required_table = required_tables_by_query[qidx]
             datalake = Datalake.from_tpch_mapping(
                 "myData",
@@ -921,7 +957,7 @@ def main_batch(argv):
                 list(t for t in redis_tables if t in required_table),
             )
             prompt = Prompt(datalake)
-            query_prompt = prompt.gen_full_prompt(query_sql, qidx)
+            query_prompt = prompt.gen_full_prompt(query_statement, qidx, query_language)
             print(query_prompt)
 
             # Try mulitple times

@@ -34,6 +34,10 @@ done
 output_dir="grade_output/${VERSION_DIR}/m${MAPPING_STR}"
 mkdir -p ${output_dir}
 
+# Filtering
+bash dbknitter/filter2.sh "platforms/client/source/s01/${VERSION_DIR}/m${MAPPING_STR}"
+echo "Filtered Bash setup scripts and Python programs."
+
 # Start up
 mkdir -p platforms/client/source platforms/client/output platforms/client/expected && \
     docker build -t client-image -f cloudlab/client/Dockerfile . && \
