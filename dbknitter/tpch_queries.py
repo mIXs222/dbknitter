@@ -699,3 +699,9 @@ tpch_queries_eng_official[22] = r"""The Global Sales Opportunity Query identifie
 
 tpch_queries_eng_manual = {}
 # TODO(Gangmmuk, Hanxi): Fill this in like tpch_queries_eng_official
+
+
+""" GPT's English Translation from TPC-H Query and Specification """
+
+tpch_queries_eng_gpt = {}
+# TODO(Gangmmuk, Hanxi): Fill this in like tpch_queries_eng_official
