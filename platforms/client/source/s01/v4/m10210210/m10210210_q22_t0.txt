@@ -1,0 +1,106 @@
+uid, chatcmpl-8PFGbVC2nLiypRHAOtpF2a8kdRV98
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: orders\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: customer\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    CNTRYCODE,\n    COUNT(*) AS NUMCUST,\n    SUM(C_ACCTBAL) AS TOTACCTBAL\nFROM\n    (\n    SELECT\n        SUBSTR(C_PHONE, 1 , 2) AS CNTRYCODE,\n        C_ACCTBAL\n    FROM\n        customer\n    WHERE\n        SUBSTR(C_PHONE , 1 , 2) IN\n        ('20', '40', '22', '30', '39', '42', '21')\n    AND C_ACCTBAL > (\n            SELECT\n                AVG(C_ACCTBAL)\n            FROM\n                customer\n            WHERE\n                C_ACCTBAL > 0.00\n            AND SUBSTR(C_PHONE , 1 , 2) IN\n            ('20', '40', '22', '30', '39', '42', '21')\n    )\n    AND NOT EXISTS (\n        SELECT\n            *\n        FROM\n            orders\n        WHERE\n            O_CUSTKEY = C_CUSTKEY\n        )\n    ) AS CUSTSALE\nGROUP BY\n    CNTRYCODE\nORDER BY\n    CNTRYCODE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.329238653182983
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the required Python code:
+
+```python
+# Python code (query_execution.py)
+
+import pandas as pd
+from pymongo import MongoClient
+import redis
+from direct_redis import DirectRedis
+
+# MongoDB connection details
+mongo_conn_params = {
+    'host': 'mongodb',
+    'port': 27017,
+    'db_name': 'tpch'
+}
+
+# Redis connection details
+redis_conn_params = {
+    'db_name': 0,
+    'port': 6379,
+    'host': 'redis'
+}
+
+# Connect to MongoDB
+mongo_client = MongoClient(host=mongo_conn_params['host'], port=mongo_conn_params['port'])
+mongo_db = mongo_client[mongo_conn_params['db_name']]
+mongo_orders_collection = mongo_db['orders']
+
+# Fetch orders from MongoDB
+orders_df = pd.DataFrame(list(mongo_orders_collection.find({}, {'O_CUSTKEY': 1, '_id': 0})))
+
+# Connect to Redis
+redis_client = DirectRedis(host=redis_conn_params['host'], port=redis_conn_params['port'], db=redis_conn_params['db_name'])
+
+# Fetch customer data from Redis and store in DataFrame
+customers_data = redis_client.get('customer')
+customers_df = pd.read_msgpack(customers_data)
+
+# Filter customers according to given conditions
+countries_of_interest = ('20', '40', '22', '30', '39', '42', '21')
+customers_df['CNTRYCODE'] = customers_df['C_PHONE'].str[:2]
+selected_customers_df = customers_df[
+    customers_df['CNTRYCODE'].isin(countries_of_interest) & 
+    (customers_df['C_ACCTBAL'] > 0.00) &
+    ~customers_df['C_CUSTKEY'].isin(orders_df['O_CUSTKEY'])
+]
+
+# Calculate average account balance
+avg_acct_balance = selected_customers_df[selected_customers_df['C_ACCTBAL'] > 0.00]['C_ACCTBAL'].mean()
+
+# Filter customers above average balance
+above_avg_customers_df = selected_customers_df[selected_customers_df['C_ACCTBAL'] > avg_acct_balance]
+
+# Perform aggregation based on country code
+result_df = above_avg_customers_df.groupby('CNTRYCODE').agg(
+    NUMCUST=pd.NamedAgg(column='C_CUSTKEY', aggfunc='count'),
+    TOTACCTBAL=pd.NamedAgg(column='C_ACCTBAL', aggfunc='sum')
+).reset_index()
+
+# Sort by country code
+result_df.sort_values(by='CNTRYCODE', inplace=True)
+
+# Write to CSV
+result_df.to_csv('query_output.csv', index=False)
+```
+
+Please ensure you place the above code into a file named `query_execution.py`.
+
+Here is the required bash script:
+
+```bash
+# Bash script (install_dependencies.sh)
+
+#!/bin/bash
+
+# Update package list
+sudo apt-get update
+
+# Install pip if not already installed for Python 3
+sudo apt-get install -y python3-pip
+
+# Install MongoDB driver (pymongo)
+pip3 install pymongo
+
+# Install Redis driver and direct_redis library for Python 3
+pip3 install redis direct_redis
+
+# Install pandas library for data manipulation
+pip3 install pandas
+```
+
+Please ensure you place the above code into a file named `install_dependencies.sh` and make it executable with `chmod +x install_dependencies.sh`. Note that you might need to run the bash script with superuser privileges depending on your setup.
+created_time, 1701027577
+completion_tokens, 714
+prompt_tokens, 604
+total_tokens, 1318

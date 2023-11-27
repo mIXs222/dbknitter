@@ -1,0 +1,92 @@
+uid, chatcmpl-8PGBe2hU7OAkYZXjH4RXOi6hiBuL8
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: lineitem\nRelevant table names and their schemas in mysql:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: supplier\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nwith revenue0 as\n(select\n  L_SUPPKEY as SUPPLIER_NO,\n  sum(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) as TOTAL_REVENUE\n  from\n  lineitem\n  where\n  L_SHIPDATE >= '1996-01-01'\n  AND L_SHIPDATE < date('1996-01-01', '+3 month')\n  group by\n  L_SUPPKEY)\nselect\nS_SUPPKEY,\nS_NAME,\nS_ADDRESS,\nS_PHONE,\nTOTAL_REVENUE\nfrom\nsupplier,\nrevenue0\nwhere\nS_SUPPKEY = SUPPLIER_NO\nand TOTAL_REVENUE = (\n  select\n  max(TOTAL_REVENUE)\n  from\n  revenue0\n)\norder by\nS_SUPPKEY\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 20.581719160079956
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (query_script.py):
+```python
+import pandas as pd
+import pymysql
+from collections import namedtuple
+import direct_redis
+import csv
+
+def dump_to_csv(filename, data):
+    with open(filename, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(data[0]._fields)
+        for row in data:
+            writer.writerow(row)
+
+# Establishing connection to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    passwd='my-secret-pw',
+    db='tpch'
+)
+
+# Querying MySQL for lineitem data
+mysql_query = """
+    select
+        L_SUPPKEY as SUPPLIER_NO,
+        sum(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) as TOTAL_REVENUE
+    from
+        lineitem
+    where
+        L_SHIPDATE >= '1996-01-01'
+        AND L_SHIPDATE < '1996-04-01'
+    group by
+        L_SUPPKEY
+"""
+
+with mysql_conn.cursor() as cursor:
+    cursor.execute(mysql_query)
+    Revenue = namedtuple('Revenue', ['SUPPLIER_NO', 'TOTAL_REVENUE'])
+    revenue0 = [Revenue(*row) for row in cursor.fetchall()]
+
+# Finding the max total_revenue in revenue0
+max_total_revenue = max(r.TOTAL_REVENUE for r in revenue0)
+
+# Filter suppliers with the max total_revenue
+filtered_revenue = [r for r in revenue0 if r.TOTAL_REVENUE == max_total_revenue]
+
+# Connecting Redis database
+dr = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Assuming supplier data is stored as hashes in Redis
+supplier_data = pd.read_json(dr.get('supplier'), orient='records')
+
+# Processing data and merging
+result = supplier_data[supplier_data['S_SUPPKEY'].isin([r.SUPPLIER_NO for r in filtered_revenue])]
+result['TOTAL_REVENUE'] = max_total_revenue
+result = result[['S_SUPPKEY', 'S_NAME', 'S_ADDRESS', 'S_PHONE', 'TOTAL_REVENUE']]
+
+# Closing MySQL connection
+mysql_conn.close()
+
+# Outputting to CSV
+dump_to_csv('query_output.csv', result.itertuples(index=False))
+```
+
+2. Bash script (setup_dependencies.sh):
+```bash
+#!/bin/bash
+
+# Update the package list
+sudo apt-get update
+
+# Install Python 3 and pip if they are not installed
+sudo apt-get install -y python3 python3-pip
+
+# Install the necessary Python libraries
+pip3 install pymysql pandas direct-redis
+```
+created_time, 1701031114
+completion_tokens, 550
+prompt_tokens, 580
+total_tokens, 1130

@@ -1,0 +1,81 @@
+uid, chatcmpl-8PEvodf3xqaHq7lhgvdHQREUufFdt
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: lineitem\nRelevant table names and their schemas in mongodb:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: part\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    100.00 * SUM(CASE WHEN P_TYPE LIKE 'PROMO%' THEN L_EXTENDEDPRICE * (1 - L_DISCOUNT)\n    ELSE 0\n    END) / SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS PROMO_REVENUE\nFROM\n    lineitem,\n    part\nWHERE\n    L_PARTKEY = P_PARTKEY\n    AND L_SHIPDATE >= '1995-09-01'\n    AND L_SHIPDATE < '1995-10-01'\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 22.49239683151245
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python Code (query_execution.py):
+
+```python
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+from datetime import datetime
+
+# MongoDB connection
+mongo_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = mongo_client["tpch"]
+lineitem_collection = mongo_db["lineitem"]
+
+# Retrieve lineitem data from MongoDB with condition
+lineitem_query = {
+    "L_SHIPDATE": {"$gte": datetime(1995, 9, 1), "$lt": datetime(1995, 10, 1)}
+}
+lineitem_projection = {
+    "_id": 0, "L_PARTKEY": 1, "L_EXTENDEDPRICE": 1, "L_DISCOUNT": 1
+}
+lineitem_data = list(lineitem_collection.find(lineitem_query, lineitem_projection))
+
+# Convert to DataFrame
+df_lineitem = pd.DataFrame(lineitem_data)
+
+# Redis connection
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+# Fetch part data as DataFrame from Redis
+part_keys = redis_client.keys('part:*')
+part_data = []
+for key in part_keys:
+    part_record = eval(redis_client.get(key))
+    part_data.append(part_record)
+df_part = pd.DataFrame(part_data)
+
+# Implementing SQL logic in Pandas
+merged_data = df_lineitem.merge(df_part, how='inner', left_on='L_PARTKEY', right_on='P_PARTKEY')
+merged_data['TOTAL_PRICE'] = merged_data['L_EXTENDEDPRICE'] * (1 - merged_data['L_DISCOUNT'])
+promo_revenue = merged_data.loc[merged_data['P_TYPE'].str.startswith("PROMO"), 'TOTAL_PRICE'].sum()
+total_revenue = merged_data['TOTAL_PRICE'].sum()
+result = (100.00 * promo_revenue / total_revenue) if total_revenue else 0
+
+# Creating DataFrame for output
+output_df = pd.DataFrame([{"PROMO_REVENUE": result}])
+
+# Writing output to CSV
+output_df.to_csv("query_output.csv", index=False)
+```
+
+2. Bash Script (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+
+# Update Repositories
+apt-get update
+
+# Install MongoDB dependencies
+apt-get install -y mongodb-clients
+
+# Install Python3 and pip
+apt-get install -y python3 python3-pip
+
+# Install Python libraries
+pip3 install pymongo pandas direct_redis
+```
+
+Please note that `direct_redis.DirectRedis` is not a standard library, and you might not be able to install it or use it as suggested. Normally, you would use `redis.StrictRedis` or simply `redis.Redis` from the `redis-py` library to interact with Redis from Python. The code provided assumes that there is a `direct_redis` library available which we can use as specified in the question.
+created_time, 1701026288
+completion_tokens, 591
+prompt_tokens, 512
+total_tokens, 1103

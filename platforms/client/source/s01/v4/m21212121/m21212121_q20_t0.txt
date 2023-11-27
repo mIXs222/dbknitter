@@ -1,0 +1,85 @@
+uid, chatcmpl-8PH6Gr93N0mmbsg51e4FvatNTX4sd
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: supplier, lineitem\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, part, partsupp\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    S_NAME,\n    S_ADDRESS\nFROM\n    supplier,\n    nation\nWHERE\n    S_SUPPKEY IN (\n    SELECT\n        PS_SUPPKEY\n    FROM\n        partsupp\n    WHERE\n    PS_PARTKEY IN (\n        SELECT\n            P_PARTKEY\n        FROM\n            part\n        WHERE\n            P_NAME LIKE 'forest%'\n    )\n    AND PS_AVAILQTY > (\n        SELECT\n            0.5 * SUM(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = PS_PARTKEY\n        AND L_SUPPKEY = PS_SUPPKEY\n        AND L_SHIPDATE >= '1994-01-01'\n        AND L_SHIPDATE < '1995-01-01'\n        )\n    )\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_NAME = 'CANADA'\nORDER BY\n    S_NAME\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 20.252602100372314
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`execute_query.py`):
+```python
+import pymongo
+import pandas as pd
+from datetime import datetime
+import direct_redis
+import csv
+
+# MongoDB connection
+mongo_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = mongo_client["tpch"]
+supplier_col = mongo_db["supplier"]
+lineitem_col = mongo_db["lineitem"]
+
+# Redis connection
+redis = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Part names starting with 'forest'
+pandas_part = pd.DataFrame(eval(redis.get('part')))
+part_keys_forest = pandas_part[pandas_part['P_NAME'].str.startswith('forest')]['P_PARTKEY'].tolist()
+
+# Get all part suppliers for parts with names starting with 'forest'
+pandas_partsupp = pd.DataFrame(eval(redis.get('partsupp')))
+pandas_partsupp = pandas_partsupp[pandas_partsupp['PS_PARTKEY'].isin(part_keys_forest)]
+
+# Calculate line quantity from MongoDB
+pipeline = [
+    {"$match": {
+        "L_PARTKEY": {"$in": part_keys_forest},
+        "L_SHIPDATE": {"$gte": datetime(1994, 1, 1), "$lt": datetime(1995, 1, 1)}
+    }},
+    {"$group": {
+        "_id": {
+            "L_PARTKEY": "$L_PARTKEY",
+            "L_SUPPKEY": "$L_SUPPKEY"
+        },
+        "total_quantity": {"$sum": "$L_QUANTITY"}
+    }}
+]
+
+line_quantities = {}
+for doc in lineitem_col.aggregate(pipeline):
+    key = (doc["_id"]["L_PARTKEY"], doc["_id"]["L_SUPPKEY"])
+    line_quantities[key] = 0.5 * doc['total_quantity']
+
+# Filter partsupp rows where available quantity is greater than half the summed lineitem quantity
+supp_keys_filtered = []
+for index, row in pandas_partsupp.iterrows():
+    key = (row['PS_PARTKEY'], row['PS_SUPPKEY'])
+    if key in line_quantities and row['PS_AVAILQTY'] > line_quantities[key]:
+        supp_keys_filtered.append(row['PS_SUPPKEY'])
+
+# Fetch suppliers that are from 'CANADA' using Mongodb and Redis
+nation_data = pd.DataFrame(eval(redis.get('nation')))
+nation_data_canada = nation_data[nation_data['N_NAME'] == 'CANADA']
+
+suppliers_data = pd.DataFrame(list(supplier_col.find(
+    {"S_SUPPKEY": {"$in": supp_keys_filtered}, "S_NATIONKEY": {"$in": nation_data_canada['N_NATIONKEY'].tolist()}}
+)))
+
+# Select the required columns
+result_data = suppliers_data[['S_NAME', 'S_ADDRESS']]
+
+# Write results to file
+result_data.to_csv('query_output.csv', index=False, quoting=csv.QUOTE_ALL)
+```
+
+2. Bash script to install all dependencies (`install_dependencies.sh`):
+```sh
+#!/bin/bash
+pip install pymongo pandas direct_redis
+```
+created_time, 1701034624
+completion_tokens, 633
+prompt_tokens, 678
+total_tokens, 1311

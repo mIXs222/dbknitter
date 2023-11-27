@@ -1,0 +1,76 @@
+uid, chatcmpl-8PFdBdLDp7d6pHKsDoqiBt4pQ9eOq
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: partsupp\nRelevant table names and their schemas in mongodb:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, supplier\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    PS_PARTKEY,\n    SUM(PS_SUPPLYCOST * PS_AVAILQTY) AS VALUE\nFROM\n    partsupp,\n    supplier,\n    nation\nWHERE\n    PS_SUPPKEY = S_SUPPKEY\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_NAME = 'GERMANY'\nGROUP BY\n    PS_PARTKEY HAVING\n    SUM(PS_SUPPLYCOST * PS_AVAILQTY) >\n    (\n    SELECT\n        SUM(PS_SUPPLYCOST * PS_AVAILQTY) * 0.0001000000\n    FROM\n        partsupp,\n        supplier,\n        nation\n    WHERE\n        PS_SUPPKEY = S_SUPPKEY\n        AND S_NATIONKEY = N_NATIONKEY\n        AND N_NAME = 'GERMANY'\n    )\nORDER BY\n    VALUE DESC\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 15.346289157867432
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (save it as `query_code.py`):
+
+```python
+import pymongo
+import pandas as pd
+from pandarallel import pandarallel
+import direct_redis
+
+# Initialize parallel computing
+pandarallel.initialize()
+
+# MongoDB connection
+client = pymongo.MongoClient("mongodb", 27017)
+db = client['tpch']
+partsupp_collection = db['partsupp']
+partsupp_data = pd.DataFrame(list(partsupp_collection.find({}, {'_id': 0})))
+
+# Redis connection
+redis_connection = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+nation_data = redis_connection.get('nation')
+supplier_data = redis_connection.get('supplier')
+
+# Filter the given datasets for 'GERMANY'
+nation_germany = nation_data[nation_data['N_NAME'] == 'GERMANY']
+supplier_nation_key = supplier_data[supplier_data['S_SUPPKEY'].isin(nation_germany['N_NATIONKEY'])]
+
+# Merge the datasets
+merged_df = partsupp_data.merge(supplier_nation_key, left_on='PS_SUPPKEY', right_on='S_SUPPKEY')
+
+# Calculate the SUM(PS_SUPPLYCOST * PS_AVAILQTY) and filter by 'GERMANY'
+merged_df['VALUE'] = merged_df['PS_SUPPLYCOST'] * merged_df['PS_AVAILQTY']
+grouped = merged_df.groupby('PS_PARTKEY').agg({'VALUE': ['sum']})
+grouped.columns = grouped.columns.droplevel(1)
+
+# Filter based on HAVING condition
+total_value_sum = grouped['VALUE'].sum() * 0.0001000000
+filtered_group = grouped[grouped['VALUE'] > total_value_sum].reset_index()
+
+# Sort by VALUE DESC and output to CSV
+filtered_group = filtered_group.sort_values(by='VALUE', ascending=False)
+filtered_group.to_csv('query_output.csv', index=False)
+```
+
+Here is the Bash script to install dependencies (save it as `install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Update package lists
+sudo apt-get update
+
+# Install Python pip (Ubuntu/Debian system)
+sudo apt-get install -y python3-pip
+
+# Install MongoDB client
+sudo apt-get install -y mongodb-clients
+
+# Install Redis client
+sudo apt-get install -y redis-tools
+
+# Python dependencies
+pip3 install pymongo pandas direct_redis pandarallel
+```
+created_time, 1701028977
+completion_tokens, 504
+prompt_tokens, 549
+total_tokens, 1053

@@ -1,44 +1,61 @@
 import pymysql
 import csv
 
-# Connection information
-conn_info = {
+# Connection parameters
+db_params = {
     'host': 'mysql',
     'user': 'root',
     'password': 'my-secret-pw',
-    'database': 'tpch',
+    'db': 'tpch',
+    'charset': 'utf8mb4',
 }
 
-# Establish connection to the MySQL database
-connection = pymysql.connect(**conn_info)
+# Connect to the mysql database
+conn = pymysql.connect(**db_params)
+cursor = conn.cursor()
 
-# SQL Query
+# Execute the query
 query = """
-SELECT P.PS_PARTKEY, SUM(P.PS_SUPPLYCOST * P.PS_AVAILQTY) AS TOTAL_VALUE
-FROM partsupp P
-JOIN supplier S ON P.PS_SUPPKEY = S.S_SUPPKEY
-JOIN nation N ON S.S_NATIONKEY = N.N_NATIONKEY
-WHERE N.N_NAME = 'GERMANY'
-GROUP BY P.PS_PARTKEY
-HAVING SUM(P.PS_SUPPLYCOST * P.PS_AVAILQTY) > (
-    SELECT SUM(P.PS_SUPPLYCOST * P.PS_AVAILQTY) / 10 FROM partsupp P
-    JOIN supplier S ON P.PS_SUPPKEY = S.S_SUPPKEY
-    JOIN nation N ON S.S_NATIONKEY = N.N_NATIONKEY
-    WHERE N.N_NAME = 'GERMANY'
-)
-ORDER BY TOTAL_VALUE DESC;
+SELECT
+    PS.PS_PARTKEY,
+    SUM(PS.PS_SUPPLYCOST * PS.PS_AVAILQTY) AS value
+FROM
+    partsupp PS
+JOIN
+    supplier S ON PS.PS_SUPPKEY = S.S_SUPPKEY
+JOIN
+    nation N ON S.S_NATIONKEY = N.N_NATIONKEY
+WHERE
+    N.N_NAME = 'GERMANY'
+GROUP BY
+    PS.PS_PARTKEY
+HAVING
+    SUM(PS.PS_SUPPLYCOST * PS.PS_AVAILQTY) > (
+        SELECT
+            SUM(PS.PS_SUPPLYCOST * PS.PS_AVAILQTY) * 0.0001
+        FROM
+            partsupp PS
+        JOIN
+            supplier S ON PS.PS_SUPPKEY = S.S_SUPPKEY
+        JOIN
+            nation N ON S.S_NATIONKEY = N.N_NATIONKEY
+        WHERE
+            N.N_NAME = 'GERMANY'
+    )
+ORDER BY
+    value DESC;
 """
 
-try:
-    with connection.cursor() as cursor:
-        cursor.execute(query)
-        result_set = cursor.fetchall()
+cursor.execute(query)
+result_set = cursor.fetchall()
 
-        # Write the query output to a CSV file
-        with open('query_output.csv', mode='w', newline='') as csvfile:
-            csv_writer = csv.writer(csvfile)
-            csv_writer.writerow(['PS_PARTKEY', 'TOTAL_VALUE'])
-            for row in result_set:
-                csv_writer.writerow(row)
-finally:
-    connection.close()
+# Write the query result to a CSV file
+with open('query_output.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(["PS_PARTKEY", "VALUE"])
+    for row in result_set:
+        writer.writerow(row)
+
+# Close the database connection
+cursor.close()
+conn.close()

@@ -1,0 +1,94 @@
+uid, chatcmpl-8PEdLhNhHZS7qHlwOHtcEkgwgvHWt
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: region, supplier, customer, lineitem\nRelevant table names and their schemas in mongodb:\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, part, orders\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    O_YEAR,\n    SUM(CASE WHEN NATION = 'INDIA' THEN VOLUME ELSE 0 END) / SUM(VOLUME) AS MKT_SHARE\nFROM\n    (\n    SELECT\n        strftime('%Y', O_ORDERDATE) AS O_YEAR,\n        L_EXTENDEDPRICE * (1 - L_DISCOUNT) AS VOLUME,\n        N2.N_NAME AS NATION\n    FROM\n        part,\n        supplier,\n        lineitem,\n        orders,\n        customer,\n        nation n1,\n        nation n2,\n        region\n    WHERE\n        P_PARTKEY = L_PARTKEY\n        AND S_SUPPKEY = L_SUPPKEY\n        AND L_ORDERKEY = O_ORDERKEY\n        AND O_CUSTKEY = C_CUSTKEY\n        AND C_NATIONKEY = N1.N_NATIONKEY\n        AND N1.N_REGIONKEY = R_REGIONKEY\n        AND R_NAME = 'ASIA'\n        AND S_NATIONKEY = N2.N_NATIONKEY\n        AND O_ORDERDATE BETWEEN '1995-01-01' AND '1996-12-31'\n        AND P_TYPE = 'SMALL PLATED COPPER'\n    ) AS ALL_NATIONS\nGROUP BY\n    O_YEAR\n    ORDER BY\n    O_YEAR\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.827564001083374
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (`query_code.py`):
+
+```python
+import pymongo
+import pandas as pd
+from datetime import datetime
+from direct_redis import DirectRedis
+
+# MongoDB connection
+mongo_client = pymongo.MongoClient("mongodb", 27017)
+mongo_db = mongo_client["tpch"]
+
+# Redis connection
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# Fetch data from MongoDB
+region_df = pd.DataFrame(list(mongo_db.region.find({}, {'_id': 0})))
+supplier_df = pd.DataFrame(list(mongo_db.supplier.find({}, {'_id': 0})))
+customer_df = pd.DataFrame(list(mongo_db.customer.find({}, {'_id': 0})))
+lineitem_df = pd.DataFrame(list(mongo_db.lineitem.find({}, {'_id': 0})))
+
+# Fetch data from Redis
+nation_df = pd.read_msgpack(redis_client.get('nation'))
+part_df = pd.read_msgpack(redis_client.get('part'))
+orders_df = pd.read_msgpack(redis_client.get('orders'))
+
+# Filter by conditions including date and P_TYPE
+filtered_orders = orders_df[
+    (pd.to_datetime(orders_df['O_ORDERDATE']) >= datetime(1995, 1, 1)) &
+    (pd.to_datetime(orders_df['O_ORDERDATE']) <= datetime(1996, 12, 31))
+]
+
+filtered_parts = part_df[part_df['P_TYPE'] == 'SMALL PLATED COPPER']
+
+# Merge dataframes
+merged_df = (
+    lineitem_df
+    .merge(filtered_orders, left_on='L_ORDERKEY', right_on='O_ORDERKEY')
+    .merge(filtered_parts, left_on='L_PARTKEY', right_on='P_PARTKEY')
+    .merge(supplier_df, left_on='L_SUPPKEY', right_on='S_SUPPKEY')
+    .merge(customer_df, left_on='O_CUSTKEY', right_on='C_CUSTKEY')
+    .merge(nation_df.rename(columns={'N_NATIONKEY': 'C_NATIONKEY', 'N_NAME': 'N1_NAME'}), on='C_NATIONKEY')
+    .merge(region_df, left_on='N_REGIONKEY', right_on='R_REGIONKEY')
+    .merge(nation_df.rename(columns={'N_NATIONKEY': 'S_NATIONKEY', 'N_NAME': 'N2_NAME'}), on='S_NATIONKEY')
+)
+merged_df = merged_df[merged_df['R_NAME'] == 'ASIA']
+
+# Calculate VOLUME
+merged_df['VOLUME'] = merged_df['L_EXTENDEDPRICE'] * (1 - merged_df['L_DISCOUNT'])
+
+# Group by YEAR
+merged_df['O_YEAR'] = pd.to_datetime(merged_df['O_ORDERDATE']).dt.year
+result = merged_df.groupby('O_YEAR').apply(
+    lambda x: pd.Series({
+        'MKT_SHARE': sum(x['VOLUME'][x['N2_NAME'] == 'INDIA']) / sum(x['VOLUME'])
+    })
+)
+
+result.to_csv('query_output.csv')
+```
+
+Here is the Bash script to install all the necessary dependencies (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Update package lists
+apt-get update
+
+# Install Python and pip (if not already installed)
+apt-get install -y python3 python3-pip
+
+# Install MongoDB driver
+pip3 install pymongo
+
+# Install Redis driver and its dependencies
+pip3 install git+https://github.com/20c/direct_redis.git
+
+# Install Pandas
+pip3 install pandas
+```
+created_time, 1701025143
+completion_tokens, 735
+prompt_tokens, 817
+total_tokens, 1552

@@ -1,0 +1,113 @@
+uid, chatcmpl-8PFFlcR9KNowq1i4MbjaajNk1HMXx
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: partsupp, lineitem\nRelevant table names and their schemas in mysql:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: nation, supplier\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: part\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    S_NAME,\n    S_ADDRESS\nFROM\n    supplier,\n    nation\nWHERE\n    S_SUPPKEY IN (\n    SELECT\n        PS_SUPPKEY\n    FROM\n        partsupp\n    WHERE\n    PS_PARTKEY IN (\n        SELECT\n            P_PARTKEY\n        FROM\n            part\n        WHERE\n            P_NAME LIKE 'forest%'\n    )\n    AND PS_AVAILQTY > (\n        SELECT\n            0.5 * SUM(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = PS_PARTKEY\n        AND L_SUPPKEY = PS_SUPPKEY\n        AND L_SHIPDATE >= '1994-01-01'\n        AND L_SHIPDATE < '1995-01-01'\n        )\n    )\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_NAME = 'CANADA'\nORDER BY\n    S_NAME\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 27.134100198745728
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code (`query_code.py`) that executes the given query:
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Connection details
+mysql_conn_info = {
+    "host": "mysql",
+    "user": "root",
+    "password": "my-secret-pw",
+    "db": "tpch"
+}
+
+mongodb_conn_info = {
+    "host": "mongodb",
+    "port": 27017,
+}
+
+redis_conn_info = {
+    "host": "redis",
+    "port": 6379,
+    "db": 0
+}
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(**mysql_conn_info)
+cursor = mysql_conn.cursor()
+
+# Select parts from Redis
+redis_conn = DirectRedis(**redis_conn_info)
+part_df = pd.read_json(redis_conn.get('part'))
+
+# Filter parts by name like 'forest%'
+filtered_parts = part_df[part_df['P_NAME'].str.startswith('forest')]
+
+# Get PS_SUPPKEY from MySQL partsupp table
+cursor.execute("""
+    SELECT PS_SUPPKEY, PS_PARTKEY
+    FROM partsupp
+    WHERE PS_PARTKEY IN %s
+    """, [tuple(filtered_parts['P_PARTKEY'])])
+partsupp_records = cursor.fetchall()
+partsupp_df = pd.DataFrame(partsupp_records, columns=['PS_SUPPKEY', 'PS_PARTKEY'])
+
+# Get sums from lineitem table for each (L_PARTKEY, L_SUPPKEY) composite pair
+cursor.execute("""
+    SELECT L_SUPPKEY, L_PARTKEY, SUM(L_QUANTITY) as sum_quantity
+    FROM lineitem
+    WHERE L_SHIPDATE >= '1994-01-01' AND L_SHIPDATE < '1995-01-01'
+    GROUP BY L_SUPPKEY, L_PARTKEY
+    """)
+sums_df = pd.DataFrame(cursor.fetchall(), columns=['L_SUPPKEY', 'L_PARTKEY', 'sum_quantity'])
+
+# Combine the dataframes and filter on the conditions
+merged_df = partsupp_df.merge(sums_df, left_on=['PS_PARTKEY', 'PS_SUPPKEY'], right_on=['L_PARTKEY', 'L_SUPPKEY'])
+filtered_suppliers = merged_df[merged_df['PS_AVAILQTY'] > 0.5 * merged_df['sum_quantity']]['PS_SUPPKEY']
+
+# Connect to MongoDB and retrieve suppliers and nations
+mongo_client = pymongo.MongoClient(**mongodb_conn_info)
+mongodb = mongo_client['tpch']
+supplier_collection = mongodb['supplier']
+suppliers_cursor = supplier_collection.find({"S_SUPPKEY": {"$in": list(filtered_suppliers)}})
+suppliers_df = pd.DataFrame(list(suppliers_cursor))
+
+nation_collection = mongodb['nation']
+nations_cursor = nation_collection.find({"N_NAME": "CANADA"})
+nations_df = pd.DataFrame(list(nations_cursor))
+
+# Join the suppliers with nations
+results_df = suppliers_df.merge(nations_df, left_on='S_NATIONKEY', right_on='N_NATIONKEY')
+ordered_results_df = results_df.sort_values(by='S_NAME')[['S_NAME', 'S_ADDRESS']]
+
+# Output to CSV
+ordered_results_df.to_csv('query_output.csv', index=False)
+
+# Close all connections
+cursor.close()
+mysql_conn.close()
+mongo_client.close()
+```
+
+And here is the Bash script (`install_dependencies.sh`) to install the required dependencies:
+
+```bash
+#!/bin/bash
+
+# Update package lists
+sudo apt-get update
+
+# Install Python3 and pip
+sudo apt-get install -y python3 python3-pip
+
+# Install the required Python libraries
+pip3 install pymysql pymongo pandas director_redis
+```
+
+Make sure you have execution permission on the `.sh` script by running `chmod +x install_dependencies.sh`.
+created_time, 1701027525
+completion_tokens, 777
+prompt_tokens, 762
+total_tokens, 1539

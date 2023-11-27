@@ -7,7 +7,7 @@ import argparse
 import sys
 from itertools import islice, product
 
-from dbknitter.tpch_queries import tpch_queries_sql, tpch_queries_eng_official, tpch_queries_eng_manual
+from dbknitter.tpch_queries import tpch_queries_sql, tpch_queries_eng_official, tpch_queries_eng_manual, tpch_queries_eng_gpt
 
 ## python dbknitter/gpt_tpch.py batch --output_dir platforms/client/source/s01/v1_9   --db_splits_file  db_splits.txt  --api_key  <give_your_key>
 ## OR
@@ -191,8 +191,9 @@ class TPCHSetup:
             tpch_queries_sql if query_language == "sql" else (
             tpch_queries_eng_official if query_language == "eng-official" else (
             tpch_queries_eng_manual if query_language == "eng-manual" else (
+            tpch_queries_eng_gpt if query_language == "eng-gpt" else (
             {}  # invalid query_language
-        ))))
+        )))))
         for qidx in range(1, 22 + 1):
             yield qidx, query_dict[qidx]
 
@@ -694,7 +695,7 @@ class Prompt:
                 q + "\n" + \
                 "```"
             )
-        elif query_language in ("eng-official", "eng-manual"):
+        elif query_language in ("eng-official", "eng-manual", "eng-gpt"):
             return (
                 "```english\n" + \
                 q + "\n" + \
@@ -838,6 +839,10 @@ class GPT:
                 num_tries -= 1
                 print(f"ERROR sleeping due to rate limiting ({e}). {num_tries} tries left.")
                 time.sleep(30)
+            except Exception as e:
+                num_tries -= 1
+                print(f"ERROR sleeping due to other errors {type(e)}: {e}). {num_tries} tries left.")
+                time.sleep(30)
         # mongodb_code = gpt_output['choices'][0]['text']
         #print("********************")
         #print("** chatgpt output **")
@@ -908,8 +913,8 @@ def main_batch(argv):
     parser.add_argument("--api_key", type=str, default=openai.api_key,
                         help="Chatgpt api key")
 
-    parser.add_argument("--query_language", type=str, default="sql",  # sql, eng-official, eng-manual
-                        help="Query language [sql, eng-official, eng-manual]")
+    parser.add_argument("--query_language", type=str, default="sql",  # sql, eng-official, eng-manual, eng-gpt
+                        help="Query language [sql, eng-official, eng-manual, eng-gpt]")
     
     args = parser.parse_args(argv)
     output_dir = Path(args.output_dir)
@@ -926,7 +931,7 @@ def main_batch(argv):
         return
 
     query_language = args.query_language
-    if query_language not in ["sql", "eng-official", "eng-manual"]:
+    if query_language not in ["sql", "eng-official", "eng-manual", "eng-gpt"]:
         print(f"Invalid query_language {query_language}")
 
     chatgpt_api_key = args.api_key    

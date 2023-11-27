@@ -1,0 +1,8 @@
+# install_dependencies.sh
+#!/bin/bash
+# Update package list and install Python3 and pip
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip
+
+# Install required Python libraries
+pip3 install pandas pymysql pymongo redis direct_redis

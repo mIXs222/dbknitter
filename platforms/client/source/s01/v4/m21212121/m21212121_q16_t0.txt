@@ -1,0 +1,93 @@
+uid, chatcmpl-8PH1HZhjJmUfof78xzFtGN52e4vNs
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: supplier\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: part, partsupp\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    P_BRAND,\n    P_TYPE,\n    P_SIZE,\n    COUNT(DISTINCT PS_SUPPKEY) AS SUPPLIER_CNT\nFROM\n    partsupp,\n    part\nWHERE\n    P_PARTKEY = PS_PARTKEY\n    AND P_BRAND <> 'Brand#45'\n    AND P_TYPE NOT LIKE 'MEDIUM POLISHED%'\n    AND P_SIZE IN (49, 14, 23, 45, 19, 3, 36, 9)\n    AND PS_SUPPKEY NOT IN (\n        SELECT\n            S_SUPPKEY\n        FROM\n            supplier\n        WHERE\n            S_COMMENT LIKE '%Customer%Complaints%'\n    )\nGROUP BY\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\nORDER BY\n    SUPPLIER_CNT DESC,\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 20.97502303123474
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the requested Python code to execute the query across the different databases:
+
+```python
+# query.py
+import pymongo
+import redis
+import pandas as pd
+from direct_redis import DirectRedis
+from io import StringIO
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = mongo_client["tpch"]
+mongo_supplier = mongo_db["supplier"]
+
+# Fetch data from MongoDB supplier table
+supplier_data = list(mongo_supplier.find({}, {
+    "_id": 0,
+    "S_SUPPKEY": 1,
+    "S_COMMENT": 1
+}))
+
+# Filter out suppliers with specific comments
+excluded_suppliers = set(
+    doc['S_SUPPKEY']
+    for doc in supplier_data
+    if 'Customer' in doc['S_COMMENT'] and 'Complaints' in doc['S_COMMENT']
+)
+
+# Connect to Redis
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# Fetch and convert data from Redis part table
+part_data_csv = redis_client.get('part').decode('utf-8')
+part_data_df = pd.read_csv(StringIO(part_data_csv))
+
+# Fetch and convert data from Redis partsupp table
+partsupp_data_csv = redis_client.get('partsupp').decode('utf-8')
+partsupp_data_df = pd.read_csv(StringIO(partsupp_data_csv))
+
+# Filter partsupp entries according to supplier condition
+partsupp_filtered_df = partsupp_data_df[~partsupp_data_df['PS_SUPPKEY'].isin(excluded_suppliers)]
+
+# Merge datasets and execute the query logic
+merged_df = pd.merge(part_data_df, partsupp_filtered_df, left_on='P_PARTKEY', right_on='PS_PARTKEY')
+
+# Apply filters to the merged dataset
+filtered_df = merged_df[
+    (merged_df['P_BRAND'] != 'Brand#45') &
+    (~merged_df['P_TYPE'].str.startswith('MEDIUM POLISHED')) &
+    (merged_df['P_SIZE'].isin([49, 14, 23, 45, 19, 3, 36, 9]))
+]
+
+# Group by and count distinct suppliers
+result_df = filtered_df.groupby(['P_BRAND', 'P_TYPE', 'P_SIZE']).agg({'PS_SUPPKEY': pd.Series.nunique})
+result_df = result_df.rename(columns={'PS_SUPPKEY': 'SUPPLIER_CNT'})
+result_df = result_df.reset_index()
+
+# Sort as per the given order
+result_df = result_df.sort_values(by=['SUPPLIER_CNT', 'P_BRAND', 'P_TYPE', 'P_SIZE'], ascending=[False, True, True, True])
+
+# Write results to CSV
+result_df.to_csv('query_output.csv', index=False) 
+```
+
+Here is the corresponding Bash script to install all dependencies to run that Python code:
+
+```bash
+# install_dependencies.sh
+#!/bin/bash
+
+# Update package list
+apt-get update
+
+# Install Python and PIP
+apt-get install -y python3 python3-pip
+
+# Install required Python libraries
+pip3 install pymongo redis pandas direct-redis
+```
+created_time, 1701034315
+completion_tokens, 648
+prompt_tokens, 565
+total_tokens, 1213

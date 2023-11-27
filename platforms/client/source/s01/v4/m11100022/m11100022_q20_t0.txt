@@ -1,0 +1,95 @@
+uid, chatcmpl-8PG4YhDIlYy6c517EMnE3YiaCRDar
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: supplier, partsupp\nRelevant table names and their schemas in mysql:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: nation, part\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    S_NAME,\n    S_ADDRESS\nFROM\n    supplier,\n    nation\nWHERE\n    S_SUPPKEY IN (\n    SELECT\n        PS_SUPPKEY\n    FROM\n        partsupp\n    WHERE\n    PS_PARTKEY IN (\n        SELECT\n            P_PARTKEY\n        FROM\n            part\n        WHERE\n            P_NAME LIKE 'forest%'\n    )\n    AND PS_AVAILQTY > (\n        SELECT\n            0.5 * SUM(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = PS_PARTKEY\n        AND L_SUPPKEY = PS_SUPPKEY\n        AND L_SHIPDATE >= '1994-01-01'\n        AND L_SHIPDATE < '1995-01-01'\n        )\n    )\n    AND S_NATIONKEY = N_NATIONKEY\n    AND N_NAME = 'CANADA'\nORDER BY\n    S_NAME\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 25.496231079101562
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the requested Python code (python_code.py):
+
+```python
+import pandas as pd
+import pymysql
+import pymongo
+import pickle
+from direct_redis import DirectRedis
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch'
+)
+mysql_cur = mysql_conn.cursor()
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient('mongodb', 27017)
+mongo_db = mongo_client['tpch']
+
+# Connect to Redis
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# Retrieve data from MySQL
+mysql_cur.execute("SELECT S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY FROM supplier WHERE S_NATIONKEY IN (SELECT N_NATIONKEY FROM nation WHERE N_NAME = 'CANADA')")
+suppliers = pd.DataFrame(mysql_cur.fetchall(), columns=['S_SUPPKEY', 'S_NAME', 'S_ADDRESS', 'S_NATIONKEY'])
+
+# Retrieve data from MongoDB
+part_cursor = mongo_db['part'].find({'P_NAME': {'$regex': '^forest'}}, {'P_PARTKEY': 1})
+part_keys = [doc['P_PARTKEY'] for doc in part_cursor]
+
+# Retrieve data from Redis
+lineitems = pickle.loads(redis_client.get('lineitem'))
+lineitems_df = pd.DataFrame(lineitems)
+lineitems_df = lineitems_df[(lineitems_df['L_SHIPDATE'] >= '1994-01-01') & (lineitems_df['L_SHIPDATE'] < '1995-01-01')]
+
+# Get the AVG quantity of each (P_PARTKEY, S_SUPPKEY) from lineitems
+avg_qty = lineitems_df.groupby(['L_PARTKEY', 'L_SUPPKEY'])['L_QUANTITY'].sum() * 0.5
+
+# Execute query for PARTSUPP in MySQL
+mysql_cur.execute("SELECT PS_SUPPKEY, PS_PARTKEY FROM partsupp")
+partsupp = pd.DataFrame(mysql_cur.fetchall(), columns=['PS_SUPPKEY', 'PS_PARTKEY'])
+partsupp = partsupp[partsupp['PS_PARTKEY'].isin(part_keys)]
+
+# Merge dataframes to filter the suppliers
+merged_df = pd.merge(left=suppliers, right=partsupp, how='inner', left_on='S_SUPPKEY', right_on='PS_SUPPKEY')
+merged_df = merged_df.join(avg_qty, on=['PS_PARTKEY', 'S_SUPPKEY'], rsuffix='_AVG')
+merged_df = merged_df[merged_df['L_QUANTITY'] <= merged_df['PS_AVAILQTY']]
+
+# Select the required columns and sort by S_NAME
+output_df = merged_df[['S_NAME', 'S_ADDRESS']]
+output_df = output_df.sort_values('S_NAME')
+
+# Save to CSV file
+output_df.to_csv('query_output.csv', index=False)
+
+# Close all connections
+mysql_cur.close()
+mysql_conn.close()
+mongo_client.close()
+```
+
+And the Bash script to install dependencies (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+
+# Update repositories and install pip if not already installed
+sudo apt-get update
+sudo apt-get install -y python3-pip
+
+# Install the required python libraries
+pip3 install pymysql pymongo pandas direct_redis pickle5
+
+# Note: 'direct_redis' and 'pickle5' libraries might not exist or be installable as mentioned.
+# The code assumes that the 'DirectRedis' client can handle the 'get' operation as specified,
+# and 'pickle5' is assumed to be used for Python versions < 3.8, in other cases, 'pickle' from the standard library can be used.
+```
+
+Please make sure you have the necessary permissions to execute the bash script or run it with `sudo` if required. Also, note that the script assumes all commands are run with administrator privileges and that you're using a Debian/Ubuntu-based system, as it uses `apt-get` for installations.
+created_time, 1701030674
+completion_tokens, 825
+prompt_tokens, 762
+total_tokens, 1587

@@ -1,0 +1,112 @@
+uid, chatcmpl-8PFKfZGsycXpRSkdEb2jmb7QajKXS
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: customer\nRelevant table names and their schemas in mysql:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: nation, orders\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    C_CUSTKEY,\n    C_NAME,\n    SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS REVENUE,\n    C_ACCTBAL,\n    N_NAME,\n    C_ADDRESS,\n    C_PHONE,\n    C_COMMENT\nFROM\n    customer,\n    orders,\n    lineitem,\n    nation\nWHERE\n    C_CUSTKEY = O_CUSTKEY\n    AND L_ORDERKEY = O_ORDERKEY\n    AND O_ORDERDATE >= '1993-10-01'\n    AND O_ORDERDATE < '1994-01-01'\n    AND L_RETURNFLAG = 'R'\n    AND C_NATIONKEY = N_NATIONKEY\nGROUP BY\n    C_CUSTKEY,\n    C_NAME,\n    C_ACCTBAL,\n    C_PHONE,\n    N_NAME,\n    C_ADDRESS,\n    C_COMMENT\nORDER BY\n    REVENUE, C_CUSTKEY, C_NAME, C_ACCTBAL DESC\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 27.851154327392578
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, **Python Code (query_data.py):**
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+from datetime import datetime
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch'
+)
+
+# Connect to MongoDB
+mongodb_client = pymongo.MongoClient('mongodb', 27017)
+mongodb_db = mongodb_client['tpch']
+
+# Connect to Redis
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# MySQL query
+mysql_query = """
+SELECT
+    C_CUSTKEY,
+    C_NAME,
+    C_ACCTBAL,
+    C_ADDRESS,
+    C_PHONE,
+    C_COMMENT
+FROM
+    customer
+"""
+customers = pd.read_sql(mysql_query, mysql_conn)
+
+# MongoDB queries
+nation_collection = mongodb_db['nation']
+nation = pd.DataFrame(list(nation_collection.find()))
+
+orders_collection = mongodb_db['orders']
+orders = pd.DataFrame(list(orders_collection.find({
+    'O_ORDERDATE': {'$gte': datetime(1993, 10, 1), '$lt': datetime(1994, 1, 1)}
+})))
+
+# Redis query
+lineitems_data = redis_conn.get('lineitem')
+lineitems = pd.read_json(lineitems_data, orient='split')
+
+# Converting keys to integers for proper merging
+orders['O_CUSTKEY'] = orders['O_CUSTKEY'].astype(int)
+lineitems['L_ORDERKEY'] = lineitems['L_ORDERKEY'].astype(int)
+
+# Filtering lineitems with L_RETURNFLAG = 'R'
+lineitems = lineitems[lineitems['L_RETURNFLAG'] == 'R']
+
+# Merging DataFrames
+result = customers.merge(orders, left_on='C_CUSTKEY', right_on='O_CUSTKEY')
+result = result.merge(lineitems, left_on='O_ORDERKEY', right_on='L_ORDERKEY')
+result = result.merge(nation, left_on='C_NATIONKEY', right_on='N_NATIONKEY')
+
+# Calculating revenue
+result['REVENUE'] = result.apply(lambda r: r['L_EXTENDEDPRICE'] * (1 - r['L_DISCOUNT']), axis=1)
+
+# Selecting needed columns and renaming as per SQL query column aliases
+result = result[['C_CUSTKEY', 'C_NAME', 'REVENUE', 'C_ACCTBAL', 'N_NAME', 'C_ADDRESS', 'C_PHONE', 'C_COMMENT']]
+
+# Group by and sort as per the query
+result_grouped = result.groupby([
+    'C_CUSTKEY', 'C_NAME', 'C_ACCTBAL', 'C_PHONE', 'N_NAME', 'C_ADDRESS', 'C_COMMENT'
+], as_index=False).agg({'REVENUE': 'sum'})
+
+result_sorted = result_grouped.sort_values(by=['REVENUE', 'C_CUSTKEY', 'C_NAME', 'C_ACCTBAL'], ascending=[False, True, True, False])
+
+# Writing to query_output.csv
+result_sorted.to_csv('query_output.csv', index=False)
+
+# Close database connections
+mysql_conn.close()
+mongodb_client.close()
+redis_conn.close()
+```
+
+**Bash Script (install_dependencies.sh):**
+
+```bash
+#!/bin/bash
+
+# Update package lists
+apt-get update
+
+# Install pip (or make sure it's up to date)
+apt-get install -y python3-pip
+
+# Install necessary libraries
+pip3 install pymysql pymongo pandas direct-redis
+```
+created_time, 1701027829
+completion_tokens, 728
+prompt_tokens, 746
+total_tokens, 1474

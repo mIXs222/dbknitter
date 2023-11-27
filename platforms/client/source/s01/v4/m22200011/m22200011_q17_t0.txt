@@ -1,0 +1,82 @@
+uid, chatcmpl-8PGLIJBaad21wGUY5WmS8EMULmSRp
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: lineitem\nRelevant table names and their schemas in mongodb:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: part\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    SUM(L_EXTENDEDPRICE) / 7.0 AS AVG_YEARLY\nFROM\n    lineitem,\n    part\nWHERE\n    P_PARTKEY = L_PARTKEY\n    AND P_BRAND = 'Brand#23'\n    AND P_CONTAINER = 'MED BAG'\n    AND L_QUANTITY < (\n        SELECT\n            0.2 * AVG(L_QUANTITY)\n        FROM\n            lineitem\n        WHERE\n            L_PARTKEY = P_PARTKEY\n    )\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 19.47390913963318
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code to execute the query (query_execution.py):
+```python
+import pandas as pd
+from pymongo import MongoClient
+from direct_redis import DirectRedis
+
+# Function to get DataFrame from MongoDB
+def get_mongo_df(client, database_name, collection_name):
+    db = client[database_name]
+    collection = db[collection_name]
+    cursor = collection.find({}, {'_id': 0})  # Exclude the _id field
+    df = pd.DataFrame(list(cursor))
+    return df
+
+# Function to get DataFrame from Redis
+def get_redis_df(redis_conn, tablename):
+    df_json = redis_conn.get(tablename)
+    df = pd.read_json(df_json, orient='records')
+    return df
+
+# Connect to MongoDB
+mongo_client = MongoClient('mongodb', 27017)
+mongo_df = get_mongo_df(mongo_client, 'tpch', 'lineitem')
+
+# Connect to Redis
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+redis_df = get_redis_df(redis_conn, 'part')
+
+# Perform the SQL-like query using pandas operations
+
+# Filtering part table for P_BRAND and P_CONTAINER
+filtered_parts = redis_df[(redis_df['P_BRAND'] == 'Brand#23') &
+                          (redis_df['P_CONTAINER'] == 'MED BAG')]
+
+# Calculate the AVG(L_QUANTITY) for each part
+avg_qty_by_part = mongo_df.groupby('L_PARTKEY')['L_QUANTITY'].mean().reset_index()
+avg_qty_by_part['AVG_QTY'] = avg_qty_by_part['L_QUANTITY'] * 0.2
+avg_qty_by_part.drop('L_QUANTITY', axis=1, inplace=True)
+
+# Merge filtered_parts with lineitem on P_PARTKEY
+merged_df = pd.merge(filtered_parts, mongo_df, left_on='P_PARTKEY', right_on='L_PARTKEY')
+
+# Filter on L_QUANTITY < 0.2 * AVG(L_QUANTITY)
+merged_df = pd.merge(merged_df, avg_qty_by_part, on='L_PARTKEY')
+final_df = merged_df[merged_df['L_QUANTITY'] < merged_df['AVG_QTY']]
+
+# Calculate the final result
+result = final_df['L_EXTENDEDPRICE'].sum() / 7.0
+
+# Create a DataFrame to store the result
+result_df = pd.DataFrame({'AVG_YEARLY': [result]})
+
+# Write the result to query_output.csv
+result_df.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script to install dependencies (install_dependencies.sh):
+```bash
+#!/bin/bash
+
+# Update package list and install Python pip
+sudo apt-get update
+sudo apt-get install -y python3-pip
+
+# Install the required Python libraries
+pip3 install pymongo pandas redis "direct_redis>=0.3" 
+
+echo "Dependencies installed."
+```
+created_time, 1701031712
+completion_tokens, 590
+prompt_tokens, 503
+total_tokens, 1093

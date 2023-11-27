@@ -1,0 +1,64 @@
+uid, chatcmpl-8PE77OLm5vdIfOETWcBW67rTR7V50
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer, orders\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```sql\n\nSELECT\n    CNTRYCODE,\n    COUNT(*) AS NUMCUST,\n    SUM(C_ACCTBAL) AS TOTACCTBAL\nFROM\n    (\n    SELECT\n        SUBSTR(C_PHONE, 1 , 2) AS CNTRYCODE,\n        C_ACCTBAL\n    FROM\n        customer\n    WHERE\n        SUBSTR(C_PHONE , 1 , 2) IN\n        ('20', '40', '22', '30', '39', '42', '21')\n    AND C_ACCTBAL > (\n            SELECT\n                AVG(C_ACCTBAL)\n            FROM\n                customer\n            WHERE\n                C_ACCTBAL > 0.00\n            AND SUBSTR(C_PHONE , 1 , 2) IN\n            ('20', '40', '22', '30', '39', '42', '21')\n    )\n    AND NOT EXISTS (\n        SELECT\n            *\n        FROM\n            orders\n        WHERE\n            O_CUSTKEY = C_CUSTKEY\n        )\n    ) AS CUSTSALE\nGROUP BY\n    CNTRYCODE\nORDER BY\n    CNTRYCODE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 15.2532479763031
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (file named `query_mongodb.py`):
+
+```python
+import pymongo
+import pandas as pd
+
+# Connect to MongoDB instance
+client = pymongo.MongoClient('mongodb', 27017)
+db = client['tpch']
+
+# Fetch data from collections and create DataFrames
+customers = pd.DataFrame(list(db['customer'].find()))
+orders = pd.DataFrame(list(db['orders'].find()))
+
+# Process customer accounts with positive balance
+positive_balances = customers[customers['C_ACCTBAL'] > 0.00]
+avg_positive_balance = positive_balances['C_ACCTBAL'].mean()
+
+# Filter customers based on the conditions and prepare subquery result
+subquery_result = customers[
+    (customers['C_PHONE'].str[:2].isin(['20', '40', '22', '30', '39', '42', '21'])) &
+    (customers['C_ACCTBAL'] > avg_positive_balance)
+].copy()
+
+# Exclude customers who have orders
+subquery_result = subquery_result[~subquery_result['C_CUSTKEY'].isin(orders['O_CUSTKEY'])]
+
+# Add CNTRYCODE column
+subquery_result['CNTRYCODE'] = subquery_result['C_PHONE'].str[:2]
+
+# Group by CNTRYCODE and perform aggregation
+output = subquery_result.groupby('CNTRYCODE').agg(
+    NUMCUST=('C_CUSTKEY', 'count'),
+    TOTACCTBAL=('C_ACCTBAL', 'sum')
+).reset_index()
+
+# Order by CNTRYCODE
+output.sort_values(by='CNTRYCODE', inplace=True)
+
+# Write to CSV
+output.to_csv('query_output.csv', index=False)
+```
+
+And here is the bash script to install dependencies (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Install Python MongoDB driver (pymongo) and pandas
+pip install pymongo pandas
+```
+created_time, 1701023145
+completion_tokens, 390
+prompt_tokens, 526
+total_tokens, 916
