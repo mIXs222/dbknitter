@@ -1,0 +1,83 @@
+uid, chatcmpl-8PJ6JJ8Ne8N6MJYWIOU4gMIbxcMfs
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer, lineitem\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, orders\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe query identifies customers who might be having problems with the parts that are shipped to them., The Returned Item Reporting Query finds the customers, in terms of their effect on lost revenue betwen  1993-10-01 and 1994-01-01, who have returned parts. The query considers only parts that were ordered in the specified quarter. The query lists the customer's name, address, nation, phone number, account balance, comment information and revenue lost. The customers are listed in descending order of lost revenue, customer key, customer name and customer account balance. Revenue lost is defined as sum(l_extendedprice*(1-l_discount)) for all qualifying lineitems., \n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 19.763236045837402
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python Code (`query_code.py`):
+```python
+import pymongo
+import pandas as pd
+from datetime import datetime
+import direct_redis
+import csv
+
+# MongoDB connection
+mongo_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = mongo_client["tpch"]
+customer_collection = mongo_db["customer"]
+lineitem_collection = mongo_db["lineitem"]
+
+# Redis connection
+redis_client = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Fetch nation data from Redis
+nation_data = redis_client.get('nation')
+nation_df = pd.read_json(nation_data)
+
+# Fetch orders data from Redis
+orders_data = redis_client.get('orders')
+orders_df = pd.read_json(orders_data)
+
+# Query MongoDB for required data
+query_customer = list(customer_collection.find({}, {'_id': 0}))
+query_lineitem = list(lineitem_collection.find({
+    'L_SHIPDATE': {
+        '$gte': datetime(1993, 10, 1),
+        '$lt': datetime(1994, 1, 1)
+    },
+    'L_RETURNFLAG': 'R'
+}, {'_id': 0}))
+
+# Create DataFrames from MongoDB data
+customer_df = pd.DataFrame(query_customer)
+lineitem_df = pd.DataFrame(query_lineitem)
+
+# Merge the DataFrames
+merged_df = (customer_df
+             .merge(orders_df, left_on="C_CUSTKEY", right_on="O_CUSTKEY")
+             .merge(lineitem_df, left_on="O_ORDERKEY", right_on="L_ORDERKEY")
+             .merge(nation_df, left_on="C_NATIONKEY", right_on="N_NATIONKEY"))
+
+# Calculate lost revenue and filter the required date range
+merged_df = merged_df.assign(
+    LOST_REVENUE=merged_df.L_EXTENDEDPRICE * (1 - merged_df.L_DISCOUNT)
+)
+
+# Aggregate the results
+result_df = merged_df.groupby(['C_CUSTKEY', 'C_NAME', 'C_ADDRESS', 'N_NAME', 'C_PHONE', 'C_ACCTBAL', 'C_COMMENT']) \
+    .agg(LOST_REVENUE=pd.NamedAgg(column="LOST_REVENUE", aggfunc="sum")) \
+    .reset_index() \
+    .sort_values(by=["LOST_REVENUE", "C_CUSTKEY", "C_NAME", "C_ACCTBAL"], ascending=[False, True, True, True])
+
+# Write output to CSV
+result_df.to_csv('query_output.csv', index=False, quoting=csv.QUOTE_NONNUMERIC)
+```
+
+2. Bash Script (`install_dependencies.sh`):
+```bash
+#!/bin/bash
+
+# Python dependencies
+pip install pymongo pandas direct-redis
+
+# Script to run the Python code
+python query_code.py
+```
+created_time, 1701042315
+completion_tokens, 577
+prompt_tokens, 604
+total_tokens, 1181

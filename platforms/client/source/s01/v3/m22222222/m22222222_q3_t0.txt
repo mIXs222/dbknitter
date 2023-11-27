@@ -1,0 +1,77 @@
+uid, chatcmpl-8LHLOnAgUv0PnSs1v8ijn7SqN9m0p
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders, lineitem\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n\n\nBut a user thought that all the data is stored in mysql, and wrote the following query: ```sql\n\nSELECT\n    L_ORDERKEY,\n    SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS REVENUE,\n    O_ORDERDATE,\n    O_SHIPPRIORITY\nFROM\n    customer,\n    orders,\n    lineitem\nWHERE\n    C_MKTSEGMENT = 'BUILDING'\n    AND C_CUSTKEY = O_CUSTKEY\n    AND L_ORDERKEY = O_ORDERKEY\n    AND O_ORDERDATE < '1995-03-15'\n    AND L_SHIPDATE > '1995-03-15'\nGROUP BY\n    L_ORDERKEY,\n    O_ORDERDATE,\n    O_SHIPPRIORITY\nORDER BY\n    REVENUE DESC,\n    O_ORDERDATE\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database. Use the python library 'mysql.connector' to connect the mysql server. Use 'pymongo' to connect to the mongodb server. Use 'direct_redis' to read Pandas DataFrame using get('tablename')."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 1.6689300537109375e-06
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, Here is the Python script to execute this query, which name is query.py.
+
+```python
+import pandas as pd
+import redis
+from direct_redis import DirectRedis
+
+
+def read_data_from_redis(db_number: int, host: str, port: int, table_name: str) -> pd.DataFrame:
+    # Initiate connection to redis
+    r = redis.Redis(db=db_number, host=host, port=port, decode_responses=True)
+    direct_redis = DirectRedis(connection=r)
+    data = direct_redis.get(table_name)
+    return pd.DataFrame.from_records(data)
+
+
+def main():
+    # Read data from redis
+    customer_df = read_data_from_redis(0, "redis", 6379, "customer")
+    orders_df = read_data_from_redis(0, "redis", 6379, "orders")
+    lineitem_df = read_data_from_redis(0, "redis", 6379, "lineitem")
+
+    # Merge data frames
+    data = pd.merge(customer_df, orders_df, left_on="C_CUSTKEY", right_on="O_CUSTKEY")
+    data = pd.merge(data, lineitem_df, left_on="O_ORDERKEY", right_on="L_ORDERKEY")
+
+    # Filter results
+    data = data[
+        (data['C_MKTSEGMENT'] == 'BUILDING')
+        & (data['O_ORDERDATE'] < '1995-03-15')
+        & (data['L_SHIPDATE'] > '1995-03-15')
+    ]
+
+    # Generate results and sort
+    data['REVENUE'] = data['L_EXTENDEDPRICE'] * (1 - data['L_DISCOUNT'])
+    result = data.groupby(['L_ORDERKEY', 'O_ORDERDATE', 'O_SHIPPRIORITY']).sum()
+    result = result.sort_values(by=['REVENUE', 'O_ORDERDATE'], ascending=[False, True])
+
+    # Save results
+    result.to_csv('query_output.csv')
+
+
+if __name__ == "__main__":
+    main()
+```
+
+To install all dependencies, the bash script is:
+
+```bash
+#!/bin/bash
+pip install pandas redis direct_redis
+```
+
+You can save this script to a file, such as install_dependencies.sh, and run it using the bash command:
+
+```bash
+bash install_dependencies.sh
+```
+
+After all of the dependencies have been installed, you can execute the Python script using the following command:
+
+```bash
+python query.py
+```
+created_time, 1700082250
+completion_tokens, 504
+prompt_tokens, 531
+total_tokens, 1035

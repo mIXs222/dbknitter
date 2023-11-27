@@ -1,0 +1,98 @@
+uid, chatcmpl-8PIIq3FXu3dsXlg2iefNIKopR1SXe
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer, orders, lineitem\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, supplier\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Volume Shipping Query finds, for two given nations which are INDIA and JAPAN, the gross discounted revenues derived from lineitems in which parts were shipped from a supplier in either nation to a customer in the other nation during 1995 and 1996. The query lists the supplier nation, the customer nation, the year, and the revenue from shipments that took place in that year. The query orders the answer by Supplier nation, Customer nation, and year (all ascending).\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 22.818949937820435
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Here is the Python code (`query.py`) to execute the given task:
+
+```python
+import pymongo
+import csv
+from datetime import datetime
+
+# MongoDB connection
+mongo_client = pymongo.MongoClient('mongodb://mongodb:27017/')
+mongodb = mongo_client['tpch']
+
+# Redis connection with DirectRedis for pandas dataframe
+from direct_redis import DirectRedis
+redis_client = DirectRedis(host='redis', port=6379)
+
+# Retrieve data from MongoDB
+customers = list(mongodb['customer'].find())
+orders = list(mongodb['orders'].find())
+lineitems = list(mongodb['lineitem'].find())
+
+# Retrieve data from Redis
+import pandas as pd
+
+nation_df = pd.read_msgpack(redis_client.get('nation'))
+supplier_df = pd.read_msgpack(redis_client.get('supplier'))
+
+# Convert to dataframe
+customer_df = pd.DataFrame(customers)
+order_df = pd.DataFrame(orders)
+lineitem_df = pd.DataFrame(lineitems)
+
+# Define nations of interest
+nation_keys = {n['N_NATIONKEY']: n['N_NAME'] for _, n in nation_df.iterrows() if n['N_NAME'] in ['INDIA', 'JAPAN']}
+
+# Join operations
+supplier_nations = supplier_df[supplier_df['S_NATIONKEY'].isin(nation_keys)]
+customer_nations = customer_df[customer_df['C_NATIONKEY'].isin(nation_keys)]
+
+ol_merged = order_df.merge(lineitem_df, how='inner', left_on='O_ORDERKEY', right_on='L_ORDERKEY')
+oc_merged = ol_merged.merge(customer_nations, how='inner', left_on='O_CUSTKEY', right_on='C_CUSTKEY')
+final_merge = oc_merged.merge(supplier_nations, how='inner', left_on='L_SUPPKEY', right_on='S_SUPPKEY')
+
+# Filter for year 1995 and 1996 and nations INDIA and JAPAN
+final_merge['year'] = final_merge['L_SHIPDATE'].apply(lambda x: datetime.strptime(x, "%Y-%m-%d").year)
+final_merge = final_merge[(final_merge['year'].isin([1995, 1996]))]
+final_merge = final_merge[((final_merge['S_NATIONKEY'] != final_merge['C_NATIONKEY']) &
+                          (final_merge['S_NATIONKEY'].isin(nation_keys)) &
+                          (final_merge['C_NATIONKEY'].isin(nation_keys)))]
+
+# Calculate revenue
+final_merge['revenue'] = final_merge['L_EXTENDEDPRICE'] * (1 - final_merge['L_DISCOUNT'])
+
+# Grouping and sorting
+result = final_merge.groupby(['S_NATIONKEY', 'C_NATIONKEY', 'year'])['revenue'].sum().reset_index()
+result['supplier_nation'] = result['S_NATIONKEY'].map(nation_keys)
+result['customer_nation'] = result['C_NATIONKEY'].map(nation_keys)
+result = result.sort_values(by=['supplier_nation', 'customer_nation', 'year'])
+
+# Writing results to CSV
+result[['supplier_nation', 'customer_nation', 'year', 'revenue']].to_csv('query_output.csv', index=False)
+```
+
+2. Here is the Bash script (`setup.sh`) to install all dependencies to run the above Python code:
+
+```bash
+#!/bin/bash
+
+# Update the package list
+sudo apt-get update
+
+# Install Python and pip if they are not installed
+sudo apt-get install -y python3 python3-pip
+
+# Install MongoDB driver: pymongo
+pip3 install pymongo
+
+# Install Redis driver: redis-py and direct_redis
+pip3 install redis direct_redis
+
+# Install pandas for data manipulation
+pip3 install pandas
+
+# Install msgpack for serialization in Redis
+pip3 install msgpack-python
+```
+created_time, 1701039248
+completion_tokens, 783
+prompt_tokens, 596
+total_tokens, 1379

@@ -1,0 +1,105 @@
+uid, chatcmpl-8PJ5Zd7VVUiNGyWm0ZMg8qKKFCwPV
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: region, supplier, customer, lineitem\nRelevant table names and their schemas in mongodb:\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, part, orders\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query determines how the market share of INDA within ASIA has changed over two years for SMALL PLATED COPPER., The market share for INDA within ASIA is defined as the fraction of the revenue, the sum of [l_extendedprice * (1-l_discount)], from the products of SMALL PLATED COPPER in ASIA that was supplied by suppliers from INDIA. The query determines this for the years 1995 and 1996 presented in this order.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 30.38773798942566
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the requested Python code:
+
+```python
+# query.py
+
+import pymongo
+import direct_redis
+import pandas as pd
+import csv
+from datetime import datetime
+
+# Function to convert revenue data to proper format for market share calculation.
+def calculate_market_share(year_revenues, total_revenues):
+    shares = []
+    for year in sorted(year_revenues):
+        if total_revenues != 0:
+            share = year_revenues[year] / total_revenues
+        else:
+            share = 0
+        shares.append(share)
+    return shares
+
+def main():
+    # Connect to MongoDB
+    mongo_client = pymongo.MongoClient('mongodb', 27017)
+    db = mongo_client.tpch
+    
+    # MongoDB collections to pandas dataframes
+    suppliers = pd.DataFrame(list(db.supplier.find({"S_NATIONKEY": "INDA"})))
+    lineitems = pd.DataFrame(list(db.lineitem.find({"L_SHIPDATE": {'$regex': '^(199[56]).*'}})))
+    
+    # Establish Redis connection
+    redis_client = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+    # Redis dataframes
+    nations_df = pd.DataFrame(redis_client.hgetall('nation'))
+    parts_df = pd.DataFrame(redis_client.hgetall('part'))
+    orders_df = pd.DataFrame(redis_client.hgetall('orders'))
+    
+    # Filter parts for 'SMALL PLATED COPPER' and convert Redis hash to DataFrame
+    parts = pd.read_json(parts_df.loc['part'].values[0])  # Assuming part is stored as a JSON string
+    parts = parts[parts['P_TYPE'] == 'SMALL PLATED COPPER']
+    
+    # Join lineitems to parts and further to suppliers on their keys
+    line_parts_suppliers = pd.merge(lineitems, parts, left_on='L_PARTKEY', right_on='P_PARTKEY')
+    # Note: Considering 'S_SUPPKEY' as 's_suppkey'
+    line_parts_suppliers = pd.merge(line_parts_suppliers, suppliers, left_on='L_SUPPKEY', right_on='S_SUPPKEY')
+    
+    # Filter by ASIA
+    asia_nations = nations_df[nations_df['N_REGIONKEY'] == 'ASIA']['N_NATIONKEY'].unique()
+    line_parts_suppliers_asia = line_parts_suppliers[line_parts_suppliers['S_NATIONKEY'].isin(asia_nations)]
+    
+    # Compute revenue and filter by the required years
+    line_parts_suppliers_asia['REVENUE'] = line_parts_suppliers_asia['L_EXTENDEDPRICE'] * (1 - line_parts_suppliers_asia['L_DISCOUNT'])
+    years_revenue = line_parts_suppliers_asia.groupby(line_parts_suppliers_asia['L_SHIPDATE'].str[:4])['REVENUE'].sum().to_dict()
+    total_revenue_asia = sum(years_revenue.values())
+    
+    # Calculate market shares for 1995 and 1996
+    market_shares = calculate_market_share(years_revenue, total_revenue_asia)
+    
+    # Write the result to a CSV file
+    with open('query_output.csv', 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['1995 Market Share', '1996 Market Share'])
+        writer.writerow(market_shares)
+
+if __name__ == "__main__":
+    main()
+```
+
+And here is the requested Bash script to install all dependencies:
+
+```bash
+# install_dependencies.sh
+
+#!/bin/bash
+
+# update package index
+sudo apt-get update
+
+# install Python and pip
+sudo apt-get install -y python3
+sudo apt-get install -y python3-pip
+
+# install necessary python packages
+pip3 install pymongo pandas redis
+
+# Note: direct_redis is not a standard python package and cannot be installed via pip.
+# You may need to include the direct_redis module in your project or install it from a provided source.
+```
+
+Please note, the provided python code assumes that the Redis data for 'nation' and 'part' are stored as hash maps with all entries being JSON strings, which is not standard Redis usage. However, as no direct Redis operation for 'hgetall' was mentioned that converts data directly to Pandas DataFrame, the use of `.hgetall` returning a hash map, then manually interpreting one of the hashes as JSON into a DataFrame, is a placeholder for whatever proprietary parsing the `direct_redis.DirectRedis` is doing in your setup. For proper implementation, you will need the details of the custom `DirectRedis` library.
+created_time, 1701042269
+completion_tokens, 951
+prompt_tokens, 647
+total_tokens, 1598

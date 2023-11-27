@@ -1,0 +1,80 @@
+uid, chatcmpl-8PINrfp7DEJ093ghi1uB8pMEhG5WC
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: orders, lineitem\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, supplier\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Suppliers Who Kept Orders Waiting query identifies suppliers, for a nation which is SAUDI ARABIA, whose product was part of a multi-supplier order (with current status of 'F') where they were the only supplier who failed to meet the committed delivery date.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 20.647135019302368
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the requested Python code (`query.py`) to execute your complex query:
+
+```python
+import pymongo
+import direct_redis
+import pandas as pd
+
+# Connection to MongoDB
+client = pymongo.MongoClient("mongodb", 27017)
+mongodb = client['tpch']
+
+# Fetching data from MongoDB
+orders_df = pd.DataFrame(list(mongodb.orders.find(
+    {'O_ORDERSTATUS': 'F'},
+    {'O_ORDERKEY': 1, 'O_CUSTKEY': 1}
+)))
+lineitem_df = pd.DataFrame(list(mongodb.lineitem.find(
+    {},
+    {'L_ORDERKEY': 1, 'L_SUPPKEY': 1, 'L_COMMITDATE': 1, 'L_RECEIPTDATE': 1}
+)))
+
+# Connection to Redis
+redis_conn = direct_redis.DirectRedis(host='redis', port=6379)
+nation = pd.read_json(redis_conn.get('nation'))  # Assuming the data is stored as JSON string
+supplier = pd.read_json(redis_conn.get('supplier'))  # Assuming the data is stored as JSON string
+
+# Filter for SAUDI ARABIA in the nation table
+nation_saudi = nation[nation['N_NAME'] == 'SAUDI ARABIA']
+
+# Merging tables
+suppliers_nation = supplier.merge(nation_saudi, left_on='S_NATIONKEY', right_on='N_NATIONKEY')
+merged_df = suppliers_nation.merge(lineitem_df, left_on='S_SUPPKEY', right_on='L_SUPPKEY')
+final_df = merged_df.merge(orders_df, on='O_ORDERKEY')
+
+# Performing the query's logic
+final_df['LATE'] = final_df['L_COMMITDATE'] < final_df['L_RECEIPTDATE']
+late_orders = final_df.groupby('L_ORDERKEY').filter(lambda x: (x['LATE'] == True).any())
+late_orders = late_orders.groupby('L_ORDERKEY').filter(lambda x: (x['LATE'] == False).all())
+
+# Selecting the appropriate columns for output
+output_df = late_orders[['S_SUPPKEY', 'S_NAME', 'S_ADDRESS', 'S_PHONE', 'S_ACCTBAL', 'S_COMMENT']]
+output_df = output_df.drop_duplicates()
+
+# Writing to CSV
+output_df.to_csv('query_output.csv', index=False)
+```
+
+Now, here is the requested Bash script (`install_dependencies.sh`) to install all dependencies:
+
+```bash
+#!/bin/bash
+# Bash script to install dependencies for running the Python script
+
+# Update package list
+sudo apt update
+
+# Install pip for Python package management
+sudo apt install -y python3-pip
+
+# Install MongoDB driver pymongo
+pip3 install pymongo
+
+# Install Direct Redis and Pandas
+pip3 install direct-redis pandas
+```
+
+Remember to grant execution permissions to the bash script before running by using `chmod +x install_dependencies.sh`.
+created_time, 1701039559
+completion_tokens, 594
+prompt_tokens, 516
+total_tokens, 1110

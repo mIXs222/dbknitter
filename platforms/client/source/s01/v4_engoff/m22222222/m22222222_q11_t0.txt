@@ -1,0 +1,74 @@
+uid, chatcmpl-8PHalVtYz00RlUgWUuBLSYw0qqr4U
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: nation, supplier, partsupp\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds the most important subset of suppliers' stock in GERMANY., The Important Stock Identification Query finds, from scanning the available stock of suppliers in GERMANY, all the parts that represent a significant percentage (larger than 0.0001) of the total value of all available parts. The query displays the part number and the value of those parts in descending order of value.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 15.496580123901367
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code (query_execution.py):
+
+```python
+import pandas as pd
+from direct_redis import DirectRedis
+import csv
+
+# Connect to Redis
+redis_hostname = 'redis'
+redis_port = 6379
+redis_db = 0
+r = DirectRedis(host=redis_hostname, port=redis_port, db=redis_db)
+
+# Load data from Redis
+nation_df = pd.read_json(r.get('nation'))
+supplier_df = pd.read_json(r.get('supplier'))
+partsupp_df = pd.read_json(r.get('partsupp'))
+
+# Filter suppliers from Germany
+filtered_nation = nation_df[nation_df['N_NAME'] == 'GERMANY']
+german_suppliers = supplier_df[supplier_df['S_NATIONKEY'].isin(filtered_nation['N_NATIONKEY'])]
+
+# Join tables to gather necessary information
+joined_data = german_suppliers.merge(partsupp_df, left_on='S_SUPPKEY', right_on='PS_SUPPKEY')
+
+# Compute total value of available parts
+joined_data['TOTAL_VALUE'] = joined_data['PS_AVAILQTY'] * joined_data['PS_SUPPLYCOST']
+
+# Find all parts that represent a significant percentage of the total value of all available parts
+total_value_sum = joined_data['TOTAL_VALUE'].sum()
+joined_data['VALUE_RATIO'] = joined_data['TOTAL_VALUE'] / total_value_sum
+important_parts = joined_data[joined_data['VALUE_RATIO'] > 0.0001]
+
+# Select relevant columns and sort by descending order of value
+output_data = important_parts[['PS_PARTKEY', 'TOTAL_VALUE']].sort_values(by='TOTAL_VALUE', ascending=False)
+
+# Write results to CSV file
+output_data.to_csv('query_output.csv', index=False)
+
+print("Query executed and output saved to query_output.csv")
+```
+
+Here's the bash script (install_dependencies.sh) to install all the dependencies:
+
+```bash
+#!/bin/bash
+
+# Update the package list
+sudo apt-get update
+
+# Install pip for Python3 if it's not already installed
+sudo apt-get install -y python3-pip
+
+# Install pandas
+pip3 install pandas
+
+# Install direct_redis (assuming direct_redis can be installed via pip)
+pip3 install direct_redis
+
+# Verify if csv module needs installation. It's part of Python's standard library from version 2.3
+```
+created_time, 1701036515
+completion_tokens, 481
+prompt_tokens, 383
+total_tokens, 864

@@ -1,0 +1,81 @@
+uid, chatcmpl-8PI6jT52l4ExRha2FAUjcO1JbbW8i
+message_0,{'role': 'user', 'content': 'I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get(\'tablename\')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query seeks relationships between customers and the size of their orders. This query determines the distribution of customers by the number of orders they have made, including customers who have no record of orders, past or present. It counts and reports how many customers have no orders, how many have 1, 2, 3, etc. A check is made to ensure that the orders counted do not fall into pending or do not fall into deposits. Special categories are identified in the order comment column whose pattern is neither "pending" nor "depoists".\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query\'s output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database.'},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 27.306348085403442
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Here is the Python code (`query.py`) to execute the given query using the Redis data:
+```python
+import pandas as pd
+import direct_redis
+
+# Connect to Redis
+redis_hostname = 'redis'
+redis_port = 6379
+redis_db = 0
+dr = direct_redis.DirectRedis(host=redis_hostname, port=redis_port, db=redis_db)
+
+# Load data from Redis
+try:
+    customer_df = pd.read_json(dr.get('customer'))
+    orders_df = pd.read_json(dr.get('orders'))
+except Exception as e:
+    print(f"Error loading data from Redis: {e}")
+    exit()
+
+# Process the data
+# Ensuring the orders status is not 'pending' or 'deposits' with exclusion in order comments.
+orders_df_filtered = orders_df[~orders_df['O_ORDERSTATUS'].str.contains('pending|deposits', case=False, regex=True)]
+
+# Count the number of orders per customer
+orders_count = orders_df_filtered.groupby('O_CUSTKEY').size().reset_index(name='order_count')
+
+# Combine with customer table and fill customers with no orders as 0
+customer_order_distribution = customer_df.merge(orders_count, how='left', left_on='C_CUSTKEY', right_on='O_CUSTKEY')
+customer_order_distribution['order_count'] = customer_order_distribution['order_count'].fillna(0)
+
+# Count the number of customers by the number of orders
+customer_distribution = customer_order_distribution.groupby('order_count').size().reset_index(name='customer_count')
+
+# Write the results to a CSV
+customer_distribution.to_csv('query_output.csv', index=False)
+```
+Please note that this code assumes the tables 'customer' and 'orders' have already been saved as Pandas DataFrame JSON strings in the Redis database under their respective names.
+
+2. Here is the Bash script (`setup.sh`) to install all dependencies to run the Python code provided above:
+```bash
+#!/bin/bash
+# Install Python3 and Pip if they are not already installed
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip
+
+# Install pandas
+pip3 install pandas
+
+# DirectRedis does not exist as a known Python package. This is a placeholder
+# Assume that direct_redis comes from a private repository or internal library
+# pip3 install direct_redis
+
+# If direct_redis is not installable via pip, it might need to be added manually to the Python path,
+# or the above Python code should be modified to work with the existing redis library:
+# pip3 install redis
+
+# If direct_redis is a local module, ensure that it is in the PYTHONPATH or the same directory as the query.py code.
+```
+
+Make sure to give execute permissions to `setup.sh` by running the command:
+```bash
+chmod +x setup.sh
+```
+
+And then run the script with:
+```bash
+./setup.sh
+```
+created_time, 1701038497
+completion_tokens, 598
+prompt_tokens, 414
+total_tokens, 1012

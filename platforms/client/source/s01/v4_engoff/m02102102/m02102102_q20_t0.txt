@@ -1,0 +1,122 @@
+uid, chatcmpl-8PJOrWkd0uJ7Dgz1XqVdUIv4f0uVp
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, supplier\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: part\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: partsupp, lineitem\nRelevant table names and their schemas in redis:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.723625898361206
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code that executes the specified query across the different data platforms:
+
+`run_query.py`
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(host='mysql', user='root', passwd='my-secret-pw', db='tpch')
+mysql_cursor = mysql_conn.cursor()
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient('mongodb', 27017)
+mongo_db = mongo_client['tpch']
+mongo_parts = mongo_db['part']
+
+# Connect to Redis
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# Query MySQL for nation and supplier
+mysql_cursor.execute("""
+SELECT 
+    s.S_SUPPKEY, s.S_NAME, sn.N_NAME
+FROM 
+    supplier s
+JOIN 
+    nation sn
+ON 
+    s.S_NATIONKEY = sn.N_NATIONKEY
+WHERE 
+    sn.N_NAME = 'CANADA';
+""")
+suppliers_in_canada = mysql_cursor.fetchall()
+df_suppliers = pd.DataFrame(suppliers_in_canada, columns=['S_SUPPKEY', 'S_NAME', 'N_NAME'])
+
+# Query MongoDB for part
+part_docs = mongo_parts.find({"P_NAME": {"$regex": "forest"}}, {'_id': False})
+df_parts = pd.DataFrame(list(part_docs))
+
+# Query Redis for partsupp and lineitem
+df_partsupp = pd.read_json(redis_conn.get('partsupp'), orient='records')
+df_lineitem = pd.read_json(redis_conn.get('lineitem'), orient='records')
+
+# Filter lineitems between the specified dates
+df_lineitem_filtered = df_lineitem[
+    (pd.to_datetime(df_lineitem['L_SHIPDATE']) >= pd.Timestamp('1994-01-01')) &
+    (pd.to_datetime(df_lineitem['L_SHIPDATE']) < pd.Timestamp('1995-01-01'))
+]
+
+# Combine the lineitem and partsupp data with the part data
+df_lineitem_parts = pd.merge(
+    df_lineitem_filtered,
+    df_partsupp,
+    how='inner',
+    left_on=['L_PARTKEY', 'L_SUPPKEY'],
+    right_on=['PS_PARTKEY', 'PS_SUPPKEY']
+)
+df_lineitem_parts = pd.merge(
+    df_lineitem_parts,
+    df_parts,
+    how='inner',
+    left_on='L_PARTKEY',
+    right_on='P_PARTKEY'
+)
+
+# Compute total quantity per supplier for relevant parts
+df_total_qty = df_lineitem_parts.groupby('L_SUPPKEY').agg({'L_QUANTITY': 'sum'}).reset_index()
+df_total_qty.columns = ['S_SUPPKEY', 'TOTAL_QTY']
+
+# Identify suppliers with excess (more than 50% of parts)
+df_excess_suppliers = df_total_qty[df_total_qty['TOTAL_QTY'] > df_total_qty['TOTAL_QTY'].sum() * 0.5]
+
+# Join to get supplier names
+df_final = pd.merge(
+    df_excess_suppliers,
+    df_suppliers,
+    how='inner',
+    on='S_SUPPKEY'
+)
+
+# Write output to CSV file
+df_final.to_csv('query_output.csv', index=False)
+
+# Close the connections
+mysql_cursor.close()
+mysql_conn.close()
+mongo_client.close()
+redis_conn.close()
+```
+
+And here is the Bash script to install all dependencies to run the Python code:
+
+`install_dependencies.sh`
+```bash
+#!/bin/bash
+
+# Update package repository and upgrade packages
+apt-get update
+apt-get -y upgrade
+
+# Install Python and pip
+apt-get install -y python3
+apt-get install -y python3-pip
+
+# Install MySQL, MongoDB, and Redis clients for Python
+pip3 install pymysql pymongo pandas direct-redis
+```
+created_time, 1701043465
+completion_tokens, 781
+prompt_tokens, 638
+total_tokens, 1419

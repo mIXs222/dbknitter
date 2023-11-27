@@ -1,0 +1,79 @@
+uid, chatcmpl-8PIrUzn3p2ncxNkdk7ONurtPW5pkd
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: nation, partsupp\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: supplier\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds the most important subset of suppliers' stock in GERMANY., The Important Stock Identification Query finds, from scanning the available stock of suppliers in GERMANY, all the parts that represent a significant percentage (larger than 0.0001) of the total value of all available parts. The query displays the part number and the value of those parts in descending order of value.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 15.156916856765747
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (`.py`) to execute the aforementioned query:
+
+```python
+import pymongo
+from pymongo import MongoClient
+import pandas as pd
+import redis
+import direct_redis
+
+# Connection to MongoDB
+client = MongoClient('mongodb', 27017)
+db = client['tpch']
+nation_collection = db['nation']
+partsupp_collection = db['partsupp']
+
+# Query MongoDB for nations with the name "GERMANY"
+nation_germany = list(nation_collection.find({'N_NAME': 'GERMANY'}, {'N_NATIONKEY': 1}))
+
+# Extract NATIONKEY for "GERMANY"
+nationkey_germany = nation_germany[0]['N_NATIONKEY'] if nation_germany else None
+
+# Connection to Redis
+r = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Fetch the supplier DataFrame from Redis
+suppliers_df = pd.read_json(r.get('supplier'), orient='records')
+
+# Filter for suppliers from GERMANY
+suppliers_germany_df = suppliers_df[suppliers_df['S_NATIONKEY'] == nationkey_germany]
+
+# Query MongoDB for partsupp data
+partsupp_df = pd.DataFrame(list(partsupp_collection.find()))
+
+# Merge suppliers and partsupp dataframes to get parts supplied by german suppliers
+german_partsupp_df = pd.merge(suppliers_germany_df, partsupp_df, how='inner', left_on='S_SUPPKEY', right_on='PS_SUPPKEY')
+
+# Calculate total value (PS_SUPPLYCOST * PS_AVAILQTY) for parts
+german_partsupp_df['VALUE'] = german_partsupp_df['PS_SUPPLYCOST'] * german_partsupp_df['PS_AVAILQTY']
+
+# Calculate total value of all parts
+total_value = german_partsupp_df['VALUE'].sum()
+
+# Filter parts that represent a significant percentage of the total value
+important_parts_df = german_partsupp_df[german_partsupp_df['VALUE'] > total_value * 0.0001]
+
+# Select relevant columns and sort by value in descending order
+important_parts_df = important_parts_df[['PS_PARTKEY', 'VALUE']].sort_values(by='VALUE', ascending=False)
+
+# Write the result to a CSV file
+important_parts_df.to_csv('query_output.csv', index=False)
+```
+
+And here is the Bash script (`.sh`) to install all the dependencies to run the aforementioned Python code:
+
+```bash
+#!/bin/bash
+
+# Update package list
+sudo apt-get update
+
+# Install Python3 and pip if they are not installed
+sudo apt-get install -y python3 python3-pip
+
+# Install required Python packages
+pip3 install pymongo pandas redis direct_redis
+```
+created_time, 1701041396
+completion_tokens, 566
+prompt_tokens, 447
+total_tokens, 1013

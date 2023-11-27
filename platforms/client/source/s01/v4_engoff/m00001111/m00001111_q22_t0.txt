@@ -1,0 +1,84 @@
+uid, chatcmpl-8PHmMXZocqpM4CUk3iQDLkL8PFsqg
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer, orders\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Global Sales Opportunity Query identifies geographies where there are customers who may be likely to make a purchase. This query counts how many customers within a specific range of country codes have not placed orders for 7 years whose average account balance is greater than 0.00. It also reflects the magnitude of that balance. Country code is defined as the first two characters of c_phone which should be one of '20', '40', '22', '30', '39', '42', or '21'. \n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 23.506264209747314
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`query_code.py`):
+
+```python
+import pymongo
+import csv
+from datetime import datetime, timedelta
+
+# MongoDB connection
+client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = client["tpch"]
+customer_collection = mongo_db["customer"]
+orders_collection = mongo_db["orders"]
+
+# Helper function to execute the query
+def execute_query():
+    # Calculate the date 7 years ago from today
+    seven_years_ago = datetime.today() - timedelta(weeks=7*52)
+
+    # Filtered country codes
+    country_codes = ['20', '40', '22', '30', '39', '42', '21']
+
+    # Find all customers with C_PHONE starting with the country codes and their account balance greater than 0
+    customers = customer_collection.find(
+        {
+            "C_PHONE": {"$regex": f"^(?:{'|'.join(country_codes)})"},
+            "C_ACCTBAL": {"$gt": 0}
+        },
+        {"C_CUSTKEY": 1, "C_PHONE": 1, "C_ACCTBAL": 1}
+    )
+    
+    # Map each customer to check if they have placed an order in the last 7 years
+    # and calculate count and balance
+    output_data = []
+    for country_code in country_codes:
+        customers_filtered = [cust for cust in customers if cust['C_PHONE'].startswith(country_code)]
+        
+        customer_ids = [cust["C_CUSTKEY"] for cust in customers_filtered]
+        
+        recent_orders = orders_collection.aggregate([
+            {"$match": {
+                "O_CUSTKEY": {"$in": customer_ids},
+                "O_ORDERDATE": {"$gte": seven_years_ago}
+            }},
+            {"$group": {
+                "_id": "$O_CUSTKEY"
+            }}
+        ])
+        recent_order_ids = {order["_id"] for order in recent_orders}
+        
+        potential_customers = [cust for cust in customers_filtered if cust["C_CUSTKEY"] not in recent_order_ids]
+            
+        count = len(potential_customers)
+        total_balance = sum(cust['C_ACCTBAL'] for cust in potential_customers)
+        output_data.append({'Country_Code': country_code, 'Customer_Count': count, 'Total_Balance': total_balance})
+    
+    # Write results to a CSV file
+    with open('query_output.csv', mode='w', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=['Country_Code', 'Customer_Count', 'Total_Balance'])
+        writer.writeheader()
+        writer.writerows(output_data)
+
+# Run the query
+execute_query()
+```
+
+2. Bash script to install dependencies (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+pip install pymongo
+```
+created_time, 1701037234
+completion_tokens, 580
+prompt_tokens, 392
+total_tokens, 972

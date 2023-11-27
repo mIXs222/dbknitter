@@ -1,0 +1,114 @@
+uid, chatcmpl-8PK3MWsaHWkYOk3Qmfg978QnPJXSH
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: supplier\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: orders, lineitem\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Suppliers Who Kept Orders Waiting query identifies suppliers, for a nation which is SAUDI ARABIA, whose product was part of a multi-supplier order (with current status of 'F') where they were the only supplier who failed to meet the committed delivery date.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.303001642227173
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code to execute the query on your original data:
+
+```python
+# suppliers_awaiting_orders.py
+
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+import csv
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch'
+)
+with mysql_conn.cursor() as cursor:
+    # Fetch nation key for "SAUDI ARABIA"
+    cursor.execute("SELECT N_NATIONKEY FROM nation WHERE N_NAME = 'SAUDI ARABIA'")
+    saudi_nation_key = cursor.fetchone()[0]
+
+    # Fetch suppliers from nation "SAUDI ARABIA"
+    cursor.execute("SELECT S_SUPPKEY, S_NAME FROM supplier WHERE S_NATIONKEY = %s", (saudi_nation_key,))
+    suppliers = cursor.fetchall()
+
+saudi_suppliers = {s[0]: s[1] for s in suppliers}
+
+mysql_conn.close()
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient("mongodb", 27017)
+mongo_db = mongo_client["tpch"]
+
+# Find all suppliers in "SAUDI ARABIA"
+supplier_docs = list(mongo_db.supplier.find({"S_NATIONKEY": saudi_nation_key}, {"_id": 0, "S_SUPPKEY": 1}))
+supplier_keys = {doc["S_SUPPKEY"] for doc in supplier_docs}
+
+# Connect to Redis
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# Load orders and lineitems tables from Redis
+orders_df = pd.read_json(redis_conn.get('orders'), orient='records')
+lineitem_df = pd.read_json(redis_conn.get('lineitem'), orient='records')
+
+# Identify orders with status 'F' (finished)
+finished_orders = orders_df[orders_df['O_ORDERSTATUS'] == 'F']
+
+# Merge lineitem with finished orders based on order key
+merged_df = pd.merge(finished_orders, lineitem_df, left_on='O_ORDERKEY', right_on='L_ORDERKEY')
+
+# Filter suppliers who are from "SAUDI ARABIA" and failed to deliver
+awaiting_orders = merged_df[
+    (merged_df['L_SUPPKEY'].isin(supplier_keys)) &
+    (merged_df['L_COMMITDATE'] < merged_df['L_RECEIPTDATE'])
+]
+
+# Group by supplier key to filter only those orders where all lines are late
+grouped = awaiting_orders.groupby("L_SUPPKEY").filter(lambda x: x['L_RECEIPTDATE'].count() == len(x))
+
+# Select distinct supplier names
+distinct_suppliers = grouped['L_SUPPKEY'].drop_duplicates().to_list()
+
+# Output results
+output_suppliers = [{'S_SUPPKEY': sup_key, 'S_NAME': saudi_suppliers[sup_key]} for sup_key in distinct_suppliers if sup_key in saudi_suppliers]
+
+# Write to CSV file
+with open('query_output.csv', mode='w', newline='') as file:
+    writer = csv.DictWriter(file, fieldnames=['S_SUPPKEY', 'S_NAME'])
+    writer.writeheader()
+    for data in output_suppliers:
+        writer.writerow(data)
+```
+
+And here's the Bash script to install all dependencies to run the Python code:
+
+```bash
+#!/bin/bash
+
+# install_dependencies.sh
+
+# Update package list
+sudo apt update
+
+# Install Python pip, if not installed
+sudo apt install -y python3-pip 
+
+# Install MongoDB official driver PyMongo
+pip3 install pymongo
+
+# Install MySQL connector PyMySQL
+pip3 install pymysql
+
+# Install pandas
+pip3 install pandas
+
+# Install direct_redis, which is fictional for the sake of the example
+# Please replace with the actual way of installing the direct_redis library.
+pip3 install direct-redis
+```
+created_time, 1701045976
+completion_tokens, 806
+prompt_tokens, 600
+total_tokens, 1406

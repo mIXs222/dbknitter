@@ -1,0 +1,78 @@
+uid, chatcmpl-8PJeFGwmPidWjGvE3gE56D33dOZxn
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: customer\nRelevant table names and their schemas in mysql:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: orders\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Global Sales Opportunity Query identifies geographies where there are customers who may be likely to make a purchase. This query counts how many customers within a specific range of country codes have not placed orders for 7 years whose average account balance is greater than 0.00. It also reflects the magnitude of that balance. Country code is defined as the first two characters of c_phone which should be one of '20', '40', '22', '30', '39', '42', or '21'. \n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 17.213998079299927
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Below is the Python code that you can save as `query_code.py`. This code connects to both MySQL and MongoDB databases to execute the given query.
+
+```python
+import pymysql
+import pymongo
+import csv
+import datetime
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(host='mysql', user='root', password='my-secret-pw', db='tpch')
+mysql_cursor = mysql_conn.cursor()
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient("mongodb", 27017)
+mongo_db = mongo_client["tpch"]
+orders_collection = mongo_db["orders"]
+
+# Find all customers who have not placed orders for 7 years
+seven_years_ago = datetime.datetime.now() - datetime.timedelta(days=7*365)
+ancient_orders = list(orders_collection.find({
+    "O_ORDERDATE": {"$lt": seven_years_ago}
+}, {"O_CUSTKEY": 1}))
+
+ancient_custkeys = {order["O_CUSTKEY"] for order in ancient_orders}
+
+# Construct the SQL query for MySQL
+country_codes = ['20', '40', '22', '30', '39', '42', '21']
+placeholders = ', '.join(['%s'] * len(country_codes))
+query = f"""
+SELECT LEFT(C_PHONE, 2) AS country_code, COUNT(*) AS num_customers, AVG(C_ACCTBAL) AS avg_balance
+FROM customer
+WHERE LEFT(C_PHONE, 2) IN ({placeholders})
+AND C_ACCTBAL > 0
+AND C_CUSTKEY NOT IN ({', '.join(['%s']*len(ancient_custkeys))})
+GROUP BY LEFT(C_PHONE, 2)
+"""
+
+# Execute the query
+mysql_cursor.execute(query, country_codes + list(ancient_custkeys))
+results = mysql_cursor.fetchall()
+
+# Write the results to a CSV file
+with open('query_output.csv', 'w', newline='') as csvfile:
+    csvwriter = csv.writer(csvfile)
+    csvwriter.writerow(['country_code', 'num_customers', 'avg_balance'])
+    for row in results:
+        csvwriter.writerow(row)
+
+# Close the connections
+mysql_cursor.close()
+mysql_conn.close()
+mongo_client.close()
+```
+
+Here's a bash script to install all the dependencies (`install_dependencies.sh`):
+```bash
+#!/bin/bash
+pip install pymysql
+pip install pymongo
+``` 
+
+Make sure to provide execution permission to the bash script before running it:
+```bash
+chmod +x install_dependencies.sh
+```
+created_time, 1701044419
+completion_tokens, 504
+prompt_tokens, 476
+total_tokens, 980

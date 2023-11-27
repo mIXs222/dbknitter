@@ -1,0 +1,86 @@
+uid, chatcmpl-8PKCAl9QvSgULWpBSBTLbVPIVEICc
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: orders\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: customer\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Global Sales Opportunity Query identifies geographies where there are customers who may be likely to make a purchase. This query counts how many customers within a specific range of country codes have not placed orders for 7 years whose average account balance is greater than 0.00. It also reflects the magnitude of that balance. Country code is defined as the first two characters of c_phone which should be one of '20', '40', '22', '30', '39', '42', or '21'. \n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 16.771451711654663
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`query.py`):
+```python
+import pymongo
+import pandas as pd
+from datetime import datetime
+from direct_redis import DirectRedis
+
+# Connect to MongoDB
+client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = client['tpch']
+orders_collection = mongo_db['orders']
+
+# Connect to Redis
+r = DirectRedis(host='redis', port=6379, db=0)
+
+# Load data from MongoDB
+orders_query = {
+    "O_ORDERDATE": {"$lt": datetime.now() - pd.DateOffset(years=7)}
+}
+orders_df = pd.DataFrame(list(orders_collection.find(orders_query, {'_id': 0, 'O_CUSTKEY': 1})))
+
+# Load data from Redis (assuming 'customer' is stored as a Pandas DataFrame in Redis)
+customer_df_bytes = r.get('customer')
+customer_df = pd.read_msgpack(customer_df_bytes)
+
+# Filter customers based on country codes and with account balance greater than 0.00
+country_codes = ['20', '40', '22', '30', '39', '42', '21']
+customer_df['C_COUNTRYCODE'] = customer_df['C_PHONE'].str[:2]
+filtered_customers_df = customer_df[
+    (customer_df['C_COUNTRYCODE'].isin(country_codes)) &
+    (customer_df['C_ACCTBAL'] > 0.00)
+]
+
+# Merge to find customers without orders
+merged_df = pd.merge(
+    filtered_customers_df,
+    orders_df,
+    how="left",
+    left_on='C_CUSTKEY',
+    right_on='O_CUSTKEY'
+)
+
+# Customers who have not placed orders
+result_df = merged_df[merged_df['O_ORDERKEY'].isna()]
+
+# Group by country code and compute count and average balance
+output_df = result_df.groupby('C_COUNTRYCODE').agg({
+    'C_CUSTKEY': 'count',
+    'C_ACCTBAL': 'mean'
+}).reset_index()
+
+# Rename columns to reflect the content more appropriately
+output_df.columns = ['CountryCode', 'CustomerCount', 'AverageAccountBalance']
+
+# Write output to CSV
+output_df.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script (`install_dependencies.sh`):
+```bash
+#!/bin/bash
+
+# Update package lists
+apt-get update
+
+# Install python3 and pip if not present
+apt-get install -y python3 python3-pip
+
+# Install required Python packages with pip
+pip3 install pymongo pandas direct-redis
+
+# Note: Depending on the environment, 'sudo' might be required for apt-get and pip3 commands.
+```
+created_time, 1701046522
+completion_tokens, 547
+prompt_tokens, 470
+total_tokens, 1017

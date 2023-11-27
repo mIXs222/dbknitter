@@ -1,0 +1,89 @@
+uid, chatcmpl-8PHdhSVt3ei5PVnvd2xNuXBmWRhdI
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: nation, part, supplier, partsupp, lineitem\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 25.4134418964386
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code that fulfills the given task:
+
+```python
+# potential_part_promotion.py
+
+import pandas as pd
+import direct_redis
+
+# Initialize the connection to Redis database
+redis_host = 'redis'
+redis_port = 6379
+redis_db = 0
+r = direct_redis.DirectRedis(host=redis_host, port=redis_port, db=redis_db)
+
+# Read the tables from Redis
+nation_df = pd.read_json(r.get('nation'))
+part_df = pd.read_json(r.get('part'))
+supplier_df = pd.read_json(r.get('supplier'))
+partsupp_df = pd.read_json(r.get('partsupp'))
+lineitem_df = pd.read_json(r.get('lineitem'))
+
+# Filter the tables based on conditions
+# Start with nations involved, which is CANADA
+canada_nationkey = nation_df[nation_df['N_NAME'].str.lower() == 'canada']['N_NATIONKEY'].iloc[0]
+
+# Filter suppliers by Canada's nationkey
+suppliers_in_canada_df = supplier_df[supplier_df['S_NATIONKEY'] == canada_nationkey]
+
+# Filter parts that share certain naming conventions (assuming 'forest' in the name)
+part_forest_df = part_df[part_df['P_NAME'].str.contains('forest', case=False)]
+
+# Filter lineitems shipped between the given dates
+lineitem_filtered_df = lineitem_df[
+    (lineitem_df['L_SHIPDATE'] >= '1994-01-01') &
+    (lineitem_df['L_SHIPDATE'] < '1995-01-01')
+]
+
+# Now aggregate to find parts like the 'forest part' that the supplier shipped
+partsupp_forest_df = pd.merge(part_forest_df, partsupp_df, left_on='P_PARTKEY', right_on='PS_PARTKEY')
+
+# Merge with suppliers in Canada
+suppliers_forest_partsupp_df = pd.merge(suppliers_in_canada_df, partsupp_forest_df, left_on='S_SUPPKEY', right_on='PS_SUPPKEY')
+
+# Merge with filtered lineitems
+final_df = pd.merge(lineitem_filtered_df, suppliers_forest_partsupp_df, on=['L_PARTKEY', 'L_SUPPKEY'])
+
+# Group by supplier and part to find out the quantity
+grouped_df = final_df.groupby(['S_SUPPKEY', 'L_PARTKEY'])['L_QUANTITY'].sum().reset_index()
+
+# Find suppliers who meet the excess criteria
+excess_suppliers_df = grouped_df[grouped_df['L_QUANTITY'] > grouped_df['L_QUANTITY'].transform(lambda x: x.median()) * 1.5]
+
+# Get supplier details
+excess_suppliers_details_df = pd.merge(excess_suppliers_df, suppliers_in_canada_df, left_on='S_SUPPKEY', right_on='S_SUPPKEY')
+
+# Select the required columns and output to CSV
+excess_suppliers_details_df[['S_SUPPKEY', 'S_NAME', 'S_ADDRESS', 'L_PARTKEY', 'L_QUANTITY']].to_csv('query_output.csv', index=False)
+```
+
+Next, the Bash script (`install_dependencies.sh`) to install all dependencies to run the above Python code:
+
+```bash
+#!/bin/bash
+
+# Install redis for direct_redis dependency
+sudo apt-get install -y redis-server
+
+# Ensure pip is installed
+sudo apt-get install -y python3-pip
+
+# Install Pandas
+pip3 install pandas
+
+# Install direct_redis
+pip3 install git+https://github.com/dpressel/direct-redis.git
+```
+created_time, 1701036697
+completion_tokens, 741
+prompt_tokens, 490
+total_tokens, 1231

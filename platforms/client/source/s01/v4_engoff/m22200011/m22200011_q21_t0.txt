@@ -1,0 +1,125 @@
+uid, chatcmpl-8PKbGmGmgYWMFLugWKOoPlVKHtiTq
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: supplier\nRelevant table names and their schemas in mysql:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: orders, lineitem\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Suppliers Who Kept Orders Waiting query identifies suppliers, for a nation which is SAUDI ARABIA, whose product was part of a multi-supplier order (with current status of 'F') where they were the only supplier who failed to meet the committed delivery date.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 56.50678300857544
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code to execute the query:
+
+```python
+# suppliers_query.py
+import pymysql
+import pymongo
+import pandas as pd
+import direct_redis
+
+# MySQL connection parameters
+mysql_params = {
+    'host': 'mysql',
+    'user': 'root',
+    'password': 'my-secret-pw',
+    'database': 'tpch'
+}
+
+# MongoDB connection parameters
+mongodb_params = {
+    'host': 'mongodb',
+    'port': 27017,
+}
+
+# Redis connection parameters
+redis_params = {
+    'host': 'redis',
+    'port': 6379,
+    'db': 0
+}
+
+# Connect to MySQL server
+mysql_connection = pymysql.connect(**mysql_params)
+try:
+    with mysql_connection.cursor() as cursor:
+        # Define and execute the MySQL query
+        mysql_query = """
+        SELECT s.S_SUPPKEY, s.S_NAME
+        FROM supplier as s
+        WHERE s.S_NATIONKEY = (SELECT N_NATIONKEY FROM nation WHERE N_NAME = 'SAUDI ARABIA')
+        """
+        cursor.execute(mysql_query)
+        supplier_results = cursor.fetchall()
+finally:
+    mysql_connection.close()
+
+# Connect to MongoDB server
+mongo_client = pymongo.MongoClient(**mongodb_params)
+mongodb = mongo_client['tpch']
+try:
+    # Query MongoDB for relevant documents
+    orders_query = {'O_ORDERSTATUS': 'F'}
+    orders = list(mongodb.orders.find(orders_query))
+finally:
+    mongo_client.close()
+
+# Connect to Redis server using direct_redis
+r = direct_redis.DirectRedis(**redis_params)
+try:
+    # Get the 'nation' table from Redis and convert it to a pandas DataFrame
+    nation_data = r.get('nation')
+    nation_df = pd.read_json(nation_data)
+finally:
+    r.close()
+
+# Convert query results to pandas DataFrames
+supplier_df = pd.DataFrame(list(supplier_results), columns=['S_SUPPKEY', 'S_NAME'])
+
+# Process lineitem information from MongoDB
+lineitem_df = pd.DataFrame.from_records(mongodb.lineitem.find())
+
+# Filtering the orders where suppliers failed to meet the delivery date
+lineitem_df = lineitem_df[lineitem_df['L_RECEIPTDATE'] > lineitem_df['L_COMMITDATE']]
+
+# Find which supplier was the only one late in fulfilling an order
+late_supplier_by_order = lineitem_df.groupby('L_ORDERKEY').filter(
+    lambda group: (group['L_SUPPKEY'].isin(supplier_df['S_SUPPKEY']) & group['L_RECEIPTDATE'] > group['L_COMMITDATE']).sum() == 1
+)
+late_supplier_orders = late_supplier_by_order['L_ORDERKEY'].unique()
+
+# Filter those suppliers whose products were part of the late orders
+late_suppliers = supplier_df[supplier_df['S_SUPPKEY'].isin(late_supplier_by_order['L_SUPPKEY'])]
+
+# Filter those orders that have only one late supplier
+unique_late_suppliers_orders = orders[orders['O_ORDERKEY'].isin(late_supplier_orders)]
+
+# Final results
+final_results = late_suppliers[['S_SUPPKEY', 'S_NAME']].drop_duplicates()
+
+# Write the output to a CSV file
+final_results.to_csv('query_output.csv', index=False)
+```
+
+Here is the Bash script to install all dependencies to run the Python code:
+
+```bash
+#!/bin/bash
+# install_dependencies.sh
+
+# Update package list and upgrade existing packages
+sudo apt update && sudo apt upgrade -y
+
+# Install Python3 and pip if they are not installed
+sudo apt install python3 python3-pip -y
+
+# Install necessary Python libraries
+pip3 install pymysql pymongo pandas direct_redis
+
+# Run the Python script
+python3 suppliers_query.py
+```
+
+Remember to set executable permissions for the bash script using `chmod +x install_dependencies.sh` before running it. When you execute the bash script, it will update the system, install Python3, pip, and the required Python libraries, then run the Python script to perform the desired query.
+created_time, 1701048078
+completion_tokens, 828
+prompt_tokens, 600
+total_tokens, 1428

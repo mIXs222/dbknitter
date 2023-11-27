@@ -1,0 +1,91 @@
+uid, chatcmpl-8PKJAdPiMrj1Db9zf484cTVrksFTu
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: part\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Discounted Revenue query finds the gross discounted revenue for all orders for three different types of parts. Parts are selected based on the combination of specific brands, a list of containers, and a range of sizes. The first type has a brand id of 12, a container of 'SM CASE', 'SM BOX' 'SM PACK', or 'SM PKG', quantity which is greater than or eqaul to 1 and less than or equal to 11, size between 1 and 5. The second type has a brand id of 23, a container of 'MED BAG', 'MED BOX', 'MED PKG', or 'MED PACK', quantity which is greater than or eqaul to 10 and less than or equal to 20, size between 1 and 10. The third type has a brand id of 34, a container of 'LG CASE', 'LG BOX', 'LG PACK', or 'LG PKG', quantity which is greater than or eqaul to 20 and less than or equal to 30, size between 1 and 15. All should be shipped by air whose SHIPMODE is either 'AIR' or 'AIR REG' and delivered in person.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 27.143784999847412
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code to execute the query (`query.py`):
+```python
+from pymongo import MongoClient
+import pandas as pd
+import direct_redis
+
+# MongoDB connection
+mongo_client = MongoClient('mongodb', 27017)
+mongo_db = mongo_client['tpch']
+part_collection = mongo_db['part']
+
+# Redis connection
+r = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Define the filters for parts according to the parameters mentioned
+mongo_filters = [
+    {'$or': [
+        {'P_BRAND': 'Brand#12', 'P_CONTAINER': {'$in': ['SM CASE', 'SM BOX', 'SM PACK', 'SM PKG']}, 'P_SIZE': {'$gte': 1, '$lte': 5}},
+        {'P_BRAND': 'Brand#23', 'P_CONTAINER': {'$in': ['MED BAG', 'MED BOX', 'MED PKG', 'MED PACK']}, 'P_SIZE': {'$gte': 1, '$lte': 10}},
+        {'P_BRAND': 'Brand#34', 'P_CONTAINER': {'$in': ['LG CASE', 'LG BOX', 'LG PACK', 'LG PKG']}, 'P_SIZE': {'$gte': 1, '$lte': 15}},
+    ]}
+]
+
+# Filter parts from MongoDB
+part_data = part_collection.find({'$or': mongo_filters})
+part_df = pd.DataFrame(list(part_data))
+
+# Get lineitem data from Redis as a Pandas DataFrame
+lineitem_data = r.get('lineitem')
+lineitem_df = pd.read_json(lineitem_data)
+
+# Join the data from both databases on P_PARTKEY = L_PARTKEY
+result = pd.merge(
+    part_df,
+    lineitem_df,
+    how='inner',
+    left_on='P_PARTKEY',
+    right_on='L_PARTKEY'
+)
+
+# Define lambda functions for quantity filter checks
+quantity_checks = [
+    lambda x: 1 <= x['L_QUANTITY'] <= 11,
+    lambda x: 10 <= x['L_QUANTITY'] <= 20,
+    lambda x: 20 <= x['L_QUANTITY'] <= 30,
+]
+
+# Apply quantity filters based on the corresponding P_SIZE range
+result = result[(result['P_SIZE'].between(1, 5) & result.apply(quantity_checks[0], axis=1)) |
+                (result['P_SIZE'].between(1, 10) & result.apply(quantity_checks[1], axis=1)) |
+                (result['P_SIZE'].between(1, 15) & result.apply(quantity_checks[2], axis=1))]
+
+# Filter for 'AIR' or 'AIR REG' SHIPMODE and calculate discounted revenue
+result = result[result['L_SHIPMODE'].isin(['AIR', 'AIR REG'])]
+result['DISCOUNTED_REVENUE'] = result['L_EXTENDEDPRICE'] * (1 - result['L_DISCOUNT'])
+
+# Selecting required columns
+result_final = result[['L_ORDERKEY', 'DISCOUNTED_REVENUE']]
+
+# Write the final result to query_output.csv
+result_final.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script to install dependencies (`install_dependencies.sh`):
+```bash
+#!/bin/bash
+
+pip install pymongo pandas
+
+# Assuming direct_redis is a third-party library that might not be available on PyPI.
+# Normally, one should install libraries from PyPI as follows:
+# pip install redis
+
+# Install direct_redis from source or a location specified
+# In this example, the installation method for direct_redis needs to be defined
+# Uncomment the following line and replace <source_or_wheel_location> with actual source
+# pip install <source_or_wheel_location>
+```
+created_time, 1701046956
+completion_tokens, 774
+prompt_tokens, 650
+total_tokens, 1424

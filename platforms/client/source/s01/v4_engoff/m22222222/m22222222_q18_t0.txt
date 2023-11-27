@@ -1,0 +1,52 @@
+uid, chatcmpl-8PHd76lHQ1XDH7ql0cY0jRRB01Z5v
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders, lineitem\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Large Volume Customer Query ranks customers based on their having placed a large quantity order. Large quantity orders are defined as those orders whose total quantity is above a certain level., The Large Volume Customer Query finds a list of the customers who have ever placed quantity orders larger than 300. The query lists the customer name, customer key, the order key, date and total price and the quantity for the order.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 13.412975072860718
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Here is the Python code - `query_exec.py`:
+
+```python
+import pandas as pd
+from direct_redis import DirectRedis
+
+def main():
+    redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+    # Assuming that 'get' returns a JSON string that can be directly converted to a Pandas DataFrame
+    df_customer = pd.read_json(redis_conn.get('customer'))
+    df_orders = pd.read_json(redis_conn.get('orders'))
+    df_lineitem = pd.read_json(redis_conn.get('lineitem'))
+
+    # Filtering lineitem for large quantity orders
+    df_large_lineitem = df_lineitem[df_lineitem['L_QUANTITY'] > 300]
+
+    # Joining tables to get required results
+    df_result = df_large_lineitem.merge(df_orders, left_on='L_ORDERKEY', right_on='O_ORDERKEY', how='inner').merge(
+        df_customer, left_on='O_CUSTKEY', right_on='C_CUSTKEY', how='inner')
+
+    # Selecting required columns and naming them appropriately
+    df_final_result = df_result[['C_NAME', 'C_CUSTKEY', 'O_ORDERKEY', 'O_ORDERDATE', 'O_TOTALPRICE', 'L_QUANTITY']]
+    df_final_result.columns = ['Customer Name', 'Customer Key', 'Order Key', 'Order Date', 'Total Price', 'Quantity']
+
+    # Writing results to file
+    df_final_result.to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    main()
+```
+
+2. Here is the bash script to install dependencies - `install_dependencies.sh`:
+
+```bash
+#!/bin/bash
+pip install pandas
+pip install git+https://github.com/YOUR_GITHUB/direct_redis.git#egg=direct_redis
+```
+created_time, 1701036661
+completion_tokens, 373
+prompt_tokens, 463
+total_tokens, 836

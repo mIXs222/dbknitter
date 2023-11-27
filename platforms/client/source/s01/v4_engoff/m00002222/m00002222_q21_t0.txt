@@ -1,0 +1,90 @@
+uid, chatcmpl-8PHuaEpxAhlNV9QdXIMU0TAzRiULl
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, supplier\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: orders, lineitem\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Suppliers Who Kept Orders Waiting query identifies suppliers, for a nation which is SAUDI ARABIA, whose product was part of a multi-supplier order (with current status of 'F') where they were the only supplier who failed to meet the committed delivery date.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 33.06622791290283
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, ### 1. The Python Code (`query.py`)
+```python
+import pymysql
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch'
+)
+
+# Get nations and suppliers from MySQL
+with mysql_conn:
+    with mysql_conn.cursor() as cursor:
+        cursor.execute("SELECT * FROM nation WHERE N_NAME = 'SAUDI ARABIA'")
+        nations = cursor.fetchall()
+        
+        saudi_arabia_nationkey = nations[0][0] if nations else None
+
+        if saudi_arabia_nationkey is not None:
+            cursor.execute("""
+                SELECT S_SUPPKEY, S_NAME
+                FROM supplier
+                WHERE S_NATIONKEY = %s
+            """, (saudi_arabia_nationkey,))
+            suppliers = cursor.fetchall()
+
+# Dictionary to hold suppliers from SAUDI ARABIA
+supplier_dict = {supp[0]: supp[1] for supp in suppliers} if suppliers else {}
+
+mysql_conn.close()
+
+# Establish connection to Redis
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# Get orders and lineitems from Redis
+orders_df = pd.read_json(redis_conn.get('orders'), orient='records')
+lineitem_df = pd.read_json(redis_conn.get('lineitem'), orient='records')
+
+# Query Logic
+kept_orders_waiting_df = (
+    lineitem_df.merge(
+        orders_df,
+        left_on='L_ORDERKEY',
+        right_on='O_ORDERKEY'
+    )
+    .query("`L_COMMITDATE` < `L_RECEIPTDATE` and `O_ORDERSTATUS` == 'F'")
+    .groupby('L_ORDERKEY')
+    .filter(lambda x: (x['L_SUPPKEY'].isin(supplier_dict.keys()) & ~(x['L_SUPPKEY'].duplicated(keep=False))).any())
+    .query("`L_SUPPKEY` in @supplier_dict")
+    .assign(S_NAME=lambda df: df['L_SUPPKEY'].map(supplier_dict))
+    .loc[:, ['S_SUPPKEY', 'S_NAME']]
+    .drop_duplicates()
+)
+
+# Write to CSV
+kept_orders_waiting_df.to_csv('query_output.csv', index=False)
+```
+
+### 2. Bash script to install dependencies (`install_dependencies.sh`)
+```bash
+#!/bin/bash
+
+# Update package list and upgrade existing packages
+apt-get update -y
+apt-get upgrade -y
+
+# Install Python and pip
+apt-get install python3 -y
+apt-get install python3-pip -y
+
+# Install required Python packages
+pip3 install pymysql pandas direct-redis
+```
+created_time, 1701037744
+completion_tokens, 568
+prompt_tokens, 536
+total_tokens, 1104

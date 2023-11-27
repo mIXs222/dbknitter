@@ -1,0 +1,99 @@
+uid, chatcmpl-8PIta658sEQnOJT5kdmhb9jlfSmFI
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: orders\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: customer, lineitem\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Large Volume Customer Query ranks customers based on their having placed a large quantity order. Large quantity orders are defined as those orders whose total quantity is above a certain level., The Large Volume Customer Query finds a list of the customers who have ever placed quantity orders larger than 300. The query lists the customer name, customer key, the order key, date and total price and the quantity for the order.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 14.948782682418823
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (query_code.py):
+
+```python
+import pandas as pd
+from pymongo import MongoClient
+import direct_redis
+import csv
+
+# Constants for the quantity threshold
+QUANTITY_THRESHOLD = 300
+
+# Connection details
+MONGODB_DETAILS = {
+    'hostname': 'mongodb',
+    'port': 27017,
+    'database': 'tpch'
+}
+
+REDIS_DETAILS = {
+    'hostname': 'redis',
+    'port': 6379,
+    'database': 0
+}
+
+# Connect to MongoDB
+mongo_client = MongoClient(host=MONGODB_DETAILS['hostname'], port=MONGODB_DETAILS['port'])
+mongo_db = mongo_client[MONGODB_DETAILS['database']]
+orders_collection = mongo_db['orders']
+
+# Connect to Redis
+redis_client = direct_redis.DirectRedis(host=REDIS_DETAILS['hostname'], port=REDIS_DETAILS['port'], db=REDIS_DETAILS['database'])
+redis_customer_string = redis_client.get('customer')
+redis_lineitem_string = redis_client.get('lineitem')
+
+# DataFrame from Redis strings
+customer_df = pd.read_json(redis_customer_string)
+lineitem_df = pd.read_json(redis_lineitem_string)
+
+# First, filter lineitems for those with quantity > 300
+large_volume_lineitems = lineitem_df[lineitem_df['L_QUANTITY'] > QUANTITY_THRESHOLD]
+
+# Now, find the orders from MongoDB that match these lineitems
+large_volume_order_keys = large_volume_lineitems['L_ORDERKEY'].unique().tolist()
+large_volume_orders_cursor = orders_collection.find(
+    {
+        'O_ORDERKEY': {'$in': large_volume_order_keys}
+    },
+    {
+        'O_ORDERKEY': 1,
+        'O_CUSTKEY': 1,
+        'O_ORDERDATE': 1,
+        'O_TOTALPRICE': 1,
+        '_id': 0
+    }
+)
+
+# Convert cursor to DataFrame
+large_volume_orders_df = pd.DataFrame(list(large_volume_orders_cursor))
+
+# Merge DataFrames to get result
+result = pd.merge(
+    large_volume_orders_df,
+    customer_df,
+    how="left",
+    left_on="O_CUSTKEY",
+    right_on="C_CUSTKEY"
+)[['C_NAME', 'O_CUSTKEY', 'O_ORDERKEY', 'O_ORDERDATE', 'O_TOTALPRICE', 'L_QUANTITY']]
+
+# Save the resulting DataFrame to a CSV file
+result.to_csv('query_output.csv', index=False, quoting=csv.QUOTE_ALL)
+```
+
+2. Bash script (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+
+# Update package list
+apt-get update
+
+# Install pip for Python3
+apt-get install -y python3-pip
+
+# Install pymongo, redis, pandas and direct_redis using pip
+pip3 install pymongo direct_redis redis pandas
+```
+created_time, 1701041526
+completion_tokens, 565
+prompt_tokens, 527
+total_tokens, 1092

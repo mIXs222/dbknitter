@@ -1,0 +1,99 @@
+uid, chatcmpl-8PIgspMDQfiY6Wu1b2ajg3wvj9ABx
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, part, partsupp\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: supplier, lineitem\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 20.269347190856934
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code (`.py` file content) that you can use to execute the given query on your original data:
+
+```python
+import pymysql
+import pandas as pd
+import direct_redis
+
+def get_mysql_connection():
+    return pymysql.connect(host='mysql', user='root', password='my-secret-pw', db='tpch')
+
+def get_redis_connection():
+    return direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+def query_from_mysql():
+    mysql_con = get_mysql_connection()
+    try:
+        with mysql_con.cursor() as cursor:
+            # Extracting nations for Canada
+            cursor.execute("SELECT N_NATIONKEY FROM nation WHERE N_NAME = 'CANADA'")
+            nation_key = cursor.fetchone()
+            if not nation_key:
+                raise Exception("Canada not found in the nation table")
+            nation_key = nation_key[0]
+            
+            # Querying suppliers based on the nation key and name pattern
+            cursor.execute("""
+                SELECT S.S_SUPPKEY, S.S_NAME
+                FROM supplier S
+                WHERE S.S_NATIONKEY = %s
+            """, (nation_key,))
+            suppliers = cursor.fetchall()
+     
+    finally:
+        mysql_con.close()
+
+    return pd.DataFrame(suppliers, columns=['S_SUPPKEY', 'S_NAME'])
+
+def query_from_redis():
+    redis_con = get_redis_connection()
+    # Extracting parts with a pattern matching forest
+    part_df = pd.read_json(redis_con.get('part'), orient='records')
+    # Filter parts based on the pattern and retrieve their keys
+    part_df = part_df[part_df['P_NAME'].str.contains('forest', case=False)]
+    part_keys = part_df['P_PARTKEY']
+    
+    # Extracting lineitems within the date range and with part keys
+    lineitem_df = pd.read_json(redis_con.get('lineitem'), orient='records')
+    lineitem_df = lineitem_df[(lineitem_df['L_SHIPDATE'] >= '1994-01-01') & 
+                              (lineitem_df['L_SHIPDATE'] <= '1995-01-01') & 
+                              (lineitem_df['L_PARTKEY'].isin(part_keys))]
+    
+    # Summing quantities shipped by each supplier for qualifying parts
+    shipped_qty_by_supp = lineitem_df.groupby('L_SUPPKEY')['L_QUANTITY'].sum().reset_index()
+
+    return shipped_qty_by_supp
+
+# Run the queries and merge results
+suppliers_df = query_from_mysql()
+shipped_qty_by_supp_df = query_from_redis()
+
+# Only consider suppliers that have shipped qualifying parts
+relevant_suppliers = pd.merge(suppliers_df, shipped_qty_by_supp_df,
+                              left_on='S_SUPPKEY', right_on='L_SUPPKEY')
+
+# Identifying suppliers with excess parts - more than 50%
+relevant_suppliers['excess'] = relevant_suppliers['L_QUANTITY'] > 300 # Assuming total parts like forest is 600
+potential_promotion_suppliers = relevant_suppliers[relevant_suppliers['excess']]
+
+# Write the result to a CSV file
+potential_promotion_suppliers.to_csv('query_output.csv', index=False)
+```
+
+Now, here's the Bash script (`.sh` file content) to install all dependencies required to run the above Python code:
+
+```bash
+#!/bin/bash
+
+# Update and install system packages
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip
+
+# Install necessary Python packages
+pip3 install pymysql pandas redis direct_redis
+```
+
+Please ensure that you have the appropriate permissions to execute the bash script and that Python3 and pip3 are already installed on the system where you intend to run the script.
+created_time, 1701040738
+completion_tokens, 766
+prompt_tokens, 574
+total_tokens, 1340

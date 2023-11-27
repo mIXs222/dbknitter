@@ -1,0 +1,93 @@
+uid, chatcmpl-8PHv7KAEZjbFbXuaMTlEnNHX0jFj9
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Global Sales Opportunity Query identifies geographies where there are customers who may be likely to make a purchase. This query counts how many customers within a specific range of country codes have not placed orders for 7 years whose average account balance is greater than 0.00. It also reflects the magnitude of that balance. Country code is defined as the first two characters of c_phone which should be one of '20', '40', '22', '30', '39', '42', or '21'. \n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 20.74484395980835
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code required to execute this query (save it as `execute_query.py`):
+
+```python
+import pandas as pd
+import direct_redis
+
+def is_valid_country(phone, valid_codes):
+    return phone[:2] in valid_codes
+
+def read_dataframe_from_redis(table_name):
+    redis_db = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+    df_json = redis_db.get(table_name)
+    if df_json:
+        return pd.read_json(df_json, orient='records')
+    return None
+
+def main():
+    valid_country_codes = ['20', '40', '22', '30', '39', '42', '21']
+
+    # Read data from Redis
+    customers_df = read_dataframe_from_redis('customer')
+    orders_df = read_dataframe_from_redis('orders')
+
+    # Filter customers based on phone and account balance
+    filtered_customers_df = customers_df[
+        customers_df.apply(lambda x: is_valid_country(x['C_PHONE'], valid_country_codes) 
+                           and x['C_ACCTBAL'] > 0.00,
+                           axis=1)
+    ]
+
+    # Find customers who have not placed an order in the last 7 years
+    seven_years_ago = pd.Timestamp.now() - pd.DateOffset(years=7)
+    orders_df['O_ORDERDATE'] = pd.to_datetime(orders_df['O_ORDERDATE'])
+    recent_orders_df = orders_df[orders_df['O_ORDERDATE'] >= seven_years_ago]
+    # Get customer keys of those who have placed orders in the last 7 years
+    recent_customers = recent_orders_df['O_CUSTKEY'].unique()
+    
+    # Remove customers who have placed recent orders
+    targeted_customers_df = filtered_customers_df[~filtered_customers_df['C_CUSTKEY'].isin(recent_customers)]
+
+    # Group by the country code with count of customers and average balance
+    targeted_customers_df['COUNTRY_CODE'] = targeted_customers_df['C_PHONE'].str[:2]
+    result = targeted_customers_df.groupby('COUNTRY_CODE').agg({'C_CUSTKEY': 'count', 'C_ACCTBAL': 'mean'}).reset_index()
+
+    # Rename columns to match required output
+    result.columns = ['COUNTRY_CODE', 'CUSTOMER_COUNT', 'AVERAGE_BALANCE']
+
+    # Write result to file
+    result.to_csv('query_output.csv', index=False)
+
+if __name__ == '__main__':
+    main()
+```
+
+And here is the Bash script required to install all dependencies (save it as `setup.sh`):
+
+```bash
+#!/bin/bash
+
+# It is assumed that the script is executed in a Linux environment with Python3 installed.
+# If pip is not installed, install pip first.
+
+# Update the package list
+sudo apt-get update
+
+# Install Python3 pip if not already installed
+sudo apt-get install -y python3-pip
+
+# Install Pandas library using pip
+pip3 install pandas
+
+# Install direct_redis which is a hypothetical library in this context
+pip3 install direct_redis
+```
+
+Make sure to give the Bash script `setup.sh` execute permission by running the command:
+
+```bash
+chmod +x setup.sh
+```
+created_time, 1701037777
+completion_tokens, 665
+prompt_tokens, 406
+total_tokens, 1071

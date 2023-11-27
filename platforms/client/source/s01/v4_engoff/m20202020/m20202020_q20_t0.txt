@@ -1,0 +1,94 @@
+uid, chatcmpl-8PJ1UiEbs8iUoYSdroacaKqD5mlwh
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: supplier, lineitem\nRelevant table names and their schemas in mysql:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: nation, part, partsupp\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 23.12316393852234
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (query.py):
+
+```python
+import pymysql
+import pandas as pd
+from sqlalchemy import create_engine
+import direct_redis
+
+# MySQL Connection
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    database='tpch'
+)
+
+# Redis Connection
+r = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Fetch relevant tables from MySQL
+lineitem_query = """
+SELECT
+    L_SUPPKEY,
+    L_PARTKEY,
+    L_QUANTITY
+FROM
+    lineitem
+WHERE
+    L_SHIPDATE >= '1994-01-01' AND L_SHIPDATE < '1995-01-01';
+"""
+supplier_query = "SELECT S_SUPPKEY, S_NAME FROM supplier;"
+lineitem_df = pd.read_sql(lineitem_query, mysql_conn)
+supplier_df = pd.read_sql(supplier_query, mysql_conn)
+
+# Fetch relevant tables from Redis
+nation_df = pd.read_json(r.get('nation'), orient='records')
+part_df = pd.read_json(r.get('part'), orient='records')
+partsupp_df = pd.read_json(r.get('partsupp'), orient='records')
+
+# Close MySQL connection
+mysql_conn.close()
+
+# Filter nations for Canada
+nation_df = nation_df[nation_df['N_NAME'] == 'CANADA']
+
+# Merge DataFrame
+combined_df = (
+    part_df.merge(partsupp_df, how='inner', left_on='P_PARTKEY', right_on='PS_PARTKEY')
+    .merge(lineitem_df, how='inner', left_on=['P_PARTKEY', 'PS_SUPPKEY'], right_on=['L_PARTKEY', 'L_SUPPKEY'])
+    .merge(nation_df, how='inner', left_on='PS_SUPPKEY', right_on='N_NATIONKEY')
+    .merge(supplier_df, how='inner', left_on='PS_SUPPKEY', right_on='S_SUPPKEY')
+)
+
+# Consider only forest parts based on naming convention
+forest_parts_df = combined_df[combined_df['P_NAME'].str.contains('forest', case=False)]
+
+# Compute excess of part quantity shipped
+forest_parts_df['TOTAL_QUANTITY'] = forest_parts_df.groupby(['S_SUPPKEY'])['L_QUANTITY'].transform('sum')
+forest_parts_df = forest_parts_df[forest_parts_df['TOTAL_QUANTITY'] > (forest_parts_df['L_QUANTITY'] * 1.5)]
+
+# Select the required columns for output
+output_df = forest_parts_df[['S_SUPPKEY', 'S_NAME']].drop_duplicates()
+
+# Write the output to a csv file
+output_df.to_csv('query_output.csv', index=False)
+```
+
+And here is the bash script (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+
+# Update package lists
+sudo apt-get update
+
+# Install Python
+sudo apt-get install -y python3 python3-pip
+
+# Install Python packages
+pip3 install pymysql pandas sqlalchemy direct-redis
+```
+created_time, 1701042016
+completion_tokens, 621
+prompt_tokens, 574
+total_tokens, 1195

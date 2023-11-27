@@ -1,0 +1,92 @@
+uid, chatcmpl-8PJIlB1OHnVWuaIIhAQ04068eyYr3
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: orders\nRelevant table names and their schemas in mysql:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: customer\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Shipping Priority Query retrieves the shipping priority and potential revenue, defined as the sum of l_extendedprice * (1-l_discount), of the orders having the largest revenue among those that had not been shipped as of a given date of 1995-03-15 and where market segment is BUILDING. Orders are listed in decreasing order of revenue.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 21.60540199279785
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Here is the Python code `query_script.py`:
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Function to connect to MySQL database and retrieve the orders
+def get_mysql_data():
+    connection = pymysql.connect(host='mysql',
+                                 user='root',
+                                 password='my-secret-pw',
+                                 database='tpch')
+    try:
+        with connection.cursor() as cursor:
+            sql = """SELECT O_ORDERKEY, O_SHIPPRIORITY
+                     FROM orders
+                     WHERE O_ORDERDATE < '1995-03-15'
+                       AND O_ORDERSTATUS = 'O'"""
+            cursor.execute(sql)
+            result = cursor.fetchall()
+            orders_df = pd.DataFrame(list(result), columns=['O_ORDERKEY', 'O_SHIPPRIORITY'])
+    finally:
+        connection.close()
+
+    return orders_df
+
+# Function to connect to MongoDB database and retrieve the customers
+def get_mongodb_data():
+    client = pymongo.MongoClient('mongodb', 27017)
+    db = client['tpch']
+    customer_collection = db['customer']
+    
+    customers_df = pd.DataFrame(list(customer_collection.find({"C_MKTSEGMENT": "BUILDING"})))
+    return customers_df[['C_CUSTKEY']]
+
+# Function to connect to Redis database and retrieve the lineitems
+def get_redis_data():
+    redis_client = DirectRedis(host='redis', port=6379, db=0)
+    lineitem_raw_data = redis_client.get('lineitem')
+    lineitem_df = pd.read_json(lineitem_raw_data, orient='records')
+    
+    # Calculating potential revenue
+    lineitem_df['REVENUE'] = lineitem_df['L_EXTENDEDPRICE'] * (1 - lineitem_df['L_DISCOUNT'])
+    return lineitem_df[['L_ORDERKEY', 'REVENUE']]
+
+# Main execution
+def main():
+    # Retrieve data from different databases
+    orders_df = get_mysql_data()
+    customers_df = get_mongodb_data()
+    lineitem_df = get_redis_data()
+
+    # Merge data on keys
+    merged_df = orders_df.merge(lineitem_df, left_on='O_ORDERKEY', right_on='L_ORDERKEY', how='inner')
+    merged_df = merged_df.merge(customers_df, left_on='O_CUSTKEY', right_on='C_CUSTKEY', how='inner')
+
+    # Group by order key and sum the revenues, then sort and select the top revenue order
+    grouped_df = merged_df.groupby(['O_ORDERKEY', 'O_SHIPPRIORITY']).agg({'REVENUE': 'sum'}).reset_index()
+    top_revenue_df = grouped_df.sort_values('REVENUE', ascending=False).head(1)
+
+    # Write result to csv
+    top_revenue_df.to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    main()
+```
+
+2. Here is the bash script `install_dependencies.sh`:
+
+```bash
+#!/bin/bash
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip
+pip3 install pymysql pymongo pandas direct_redis
+```
+
+This bash script assumes that the system has `apt-get` available (such as Debian or Ubuntu-based systems). Adjust package manager commands accordingly if you are using a different Linux distribution or operating system.
+created_time, 1701043087
+completion_tokens, 681
+prompt_tokens, 600
+total_tokens, 1281

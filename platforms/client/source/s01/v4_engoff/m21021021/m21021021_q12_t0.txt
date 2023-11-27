@@ -1,0 +1,106 @@
+uid, chatcmpl-8PJr35DmqmFvgf2wXYxrZ0oQeoxfz
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: lineitem\nRelevant table names and their schemas in mongodb:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: orders\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query determines whether selecting less expensive modes of shipping is negatively affecting the critical-priority orders by causing more parts to be received by customers after the committed date. The Shipping Modes and Order Priority Query counts, by ship mode which is MAIL and SHIP, for lineitems actually received by customers between 1994-01-01 and 1995-01-01 which is the receipt date, the number of lineitems belonging to orders for which the l_receiptdate exceeds the l_commitdate for two different specified ship modes. Only lineitems that were actually shipped before the l_commitdate are considered. The late lineitems are partitioned into two groups, those with priority URGENT or HIGH, and those with a priority other than URGENT or HIGH.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 23.553839206695557
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code (`query.py`):
+
+```python
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+import csv
+import datetime
+
+# Connecting to MongoDB
+mongo_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = mongo_client["tpch"]
+lineitem_collection = mongo_db["lineitem"]
+
+# Querying MongoDB for lineitem data
+lineitem_query = {
+    "L_SHIPMODE": {"$in": ["MAIL", "SHIP"]},
+    "L_RECEIPTDATE": {"$gte": datetime.datetime(1994, 1, 1), "$lt": datetime.datetime(1995, 1, 1)},
+    "L_SHIPDATE": {"$lt": "$L_COMMITDATE"}
+}
+lineitem_projection = {
+    "_id": 0,
+    "L_ORDERKEY": 1,
+    "L_RECEIPTDATE": 1,
+    "L_COMMITDATE": 1,
+    "L_SHIPMODE": 1
+}
+lineitem_df = pd.DataFrame(list(lineitem_collection.find(lineitem_query, lineitem_projection)))
+
+# Connecting to Redis
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# Querying Redis for orders data
+orders_str = redis_client.get('orders')
+orders_df = pd.read_json(orders_str)
+
+# Merge lineitem and orders data
+merged_df = lineitem_df.merge(orders_df, how='inner', left_on='L_ORDERKEY', right_on='O_ORDERKEY')
+
+# Determine late lineitems
+merged_df['is_late'] = merged_df['L_RECEIPTDATE'] > merged_df['L_COMMITDATE']
+
+# Partition by priority
+urgent_high_priority = merged_df[(merged_df['O_ORDERPRIORITY'] == 'URGENT') | (merged_df['O_ORDERPRIORITY'] == 'HIGH')]
+other_priority = merged_df[(merged_df['O_ORDERPRIORITY'] != 'URGENT') & (merged_df['O_ORDERPRIORITY'] != 'HIGH')]
+
+# Count late lineitems by shipmode and priority
+result_df = pd.DataFrame({
+    'Ship_Mode': ['MAIL', 'SHIP'],
+    'URGENT/HIGH_Priority_Late': [
+        urgent_high_priority[urgent_high_priority['L_SHIPMODE'] == 'MAIL']['is_late'].sum(),
+        urgent_high_priority[urgent_high_priority['L_SHIPMODE'] == 'SHIP']['is_late'].sum(),
+    ],
+    'Other_Priority_Late': [
+        other_priority[other_priority['L_SHIPMODE'] == 'MAIL']['is_late'].sum(),
+        other_priority[other_priority['L_SHIPMODE'] == 'SHIP']['is_late'].sum(),
+    ]
+})
+
+# Write the result to a csv file
+result_df.to_csv('query_output.csv', index=False)
+```
+
+And here's the Bash script (`setup.sh`) that installs all dependencies required to execute the Python code provided:
+
+```bash
+#!/bin/bash
+
+# Update package lists
+apt-get update
+
+# Install Python and Pip if they aren't already installed
+apt-get install -y python3 python3-pip
+
+# Install MongoDB driver and Redis client for Python
+pip3 install pymongo direct_redis pandas
+```
+
+Make sure to give the bash script (`setup.sh`) execution permissions:
+
+```bash
+chmod +x setup.sh
+```
+
+To run the bash script, you would execute:
+```bash
+./setup.sh
+```
+
+Afterwards, run the Python script:
+```bash
+python3 query.py
+```
+created_time, 1701045213
+completion_tokens, 737
+prompt_tokens, 562
+total_tokens, 1299

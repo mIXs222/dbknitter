@@ -1,0 +1,80 @@
+uid, chatcmpl-8PHdKzQgrengHkrO9Z7tOatfUbPkF
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: part, lineitem\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Discounted Revenue query finds the gross discounted revenue for all orders for three different types of parts. Parts are selected based on the combination of specific brands, a list of containers, and a range of sizes. The first type has a brand id of 12, a container of 'SM CASE', 'SM BOX' 'SM PACK', or 'SM PKG', quantity which is greater than or eqaul to 1 and less than or equal to 11, size between 1 and 5. The second type has a brand id of 23, a container of 'MED BAG', 'MED BOX', 'MED PKG', or 'MED PACK', quantity which is greater than or eqaul to 10 and less than or equal to 20, size between 1 and 10. The third type has a brand id of 34, a container of 'LG CASE', 'LG BOX', 'LG PACK', or 'LG PKG', quantity which is greater than or eqaul to 20 and less than or equal to 30, size between 1 and 15. All should be shipped by air whose SHIPMODE is either 'AIR' or 'AIR REG' and delivered in person.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 22.76841974258423
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`query_script.py`):
+```python
+import pandas as pd
+import direct_redis
+
+# Establish a connection to Redis
+dr = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Define the function to get DataFrame from Redis
+def get_redis_df(table_name):
+    return pd.read_json(dr.get(table_name), orient='records')
+
+# Get tables from Redis
+part_df = get_redis_df('part')
+lineitem_df = get_redis_df('lineitem')
+
+# Define functions to check for containers, brands, and size for each part type
+def is_type_1(row):
+    return (row['P_BRAND'] == 'Brand#12' and 
+            row['P_CONTAINER'] in ['SM CASE', 'SM BOX', 'SM PACK', 'SM PKG'] and
+            1 <= row['P_SIZE'] <= 5)
+
+def is_type_2(row):
+    return (row['P_BRAND'] == 'Brand#23' and
+            row['P_CONTAINER'] in ['MED BAG', 'MED BOX', 'MED PKG', 'MED PACK'] and
+            1 <= row['P_SIZE'] <= 10)
+
+def is_type_3(row):
+    return (row['P_BRAND'] == 'Brand#34' and
+            row['P_CONTAINER'] in ['LG CASE', 'LG BOX', 'LG PACK', 'LG PKG'] and
+            1 <= row['P_SIZE'] <= 15)
+
+# Filter parts based on types
+part_df['TYPE'] = part_df.apply(lambda row: is_type_1(row) or is_type_2(row) or is_type_3(row), axis=1)
+filtered_parts = part_df[part_df['TYPE']]
+
+# Merge the lineitem and part dataframes on P_PARTKEY == L_PARTKEY
+merged_df = pd.merge(filtered_parts, lineitem_df, left_on='P_PARTKEY', right_on='L_PARTKEY')
+
+# Filter based on quantity and shipmode conditions
+result_df = merged_df[((merged_df['L_QUANTITY'] >= 1) & (merged_df['L_QUANTITY'] <= 11) & (is_type_1(merged_df))) |
+                      ((merged_df['L_QUANTITY'] >= 10) & (merged_df['L_QUANTITY'] <= 20) & (is_type_2(merged_df))) |
+                      ((merged_df['L_QUANTITY'] >= 20) & (merged_df['L_QUANTITY'] <= 30) & (is_type_3(merged_df))) &
+                      (merged_df['L_SHIPMODE'].isin(['AIR', 'AIR REG'])) &
+                      (merged_df['L_SHIPINSTRUCT'] == 'DELIVER IN PERSON')]
+
+# Calculate the gross discounted revenue for the final output
+result_df['DISCOUNT_PRICE'] = result_df['L_EXTENDEDPRICE'] * (1 - result_df['L_DISCOUNT'])
+
+# Select the necessary columns for the output
+final_df = result_df[['L_ORDERKEY', 'DISCOUNT_PRICE']]
+
+# Write the final result to a CSV file
+final_df.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script (`install_dependencies.sh`):
+```bash
+#!/bin/bash
+
+# First update the package list and install Python and pip if they're not installed already
+sudo apt update
+sudo apt install python3 python3-pip -y
+
+# Install Python package dependencies
+pip3 install pandas redis direct_redis
+```
+created_time, 1701036674
+completion_tokens, 726
+prompt_tokens, 586
+total_tokens, 1312

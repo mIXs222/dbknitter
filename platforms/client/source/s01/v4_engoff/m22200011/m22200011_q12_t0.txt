@@ -1,0 +1,105 @@
+uid, chatcmpl-8PKYG8kwdOV8NBoIhnqMkfDi0GlV3
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: orders, lineitem\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query determines whether selecting less expensive modes of shipping is negatively affecting the critical-priority orders by causing more parts to be received by customers after the committed date. The Shipping Modes and Order Priority Query counts, by ship mode which is MAIL and SHIP, for lineitems actually received by customers between 1994-01-01 and 1995-01-01 which is the receipt date, the number of lineitems belonging to orders for which the l_receiptdate exceeds the l_commitdate for two different specified ship modes. Only lineitems that were actually shipped before the l_commitdate are considered. The late lineitems are partitioned into two groups, those with priority URGENT or HIGH, and those with a priority other than URGENT or HIGH.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 20.88923478126526
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python Code (`query_code.py`):
+
+```python
+from pymongo import MongoClient
+import csv
+from datetime import datetime
+
+# Connect to the MongoDB server
+client = MongoClient('mongodb', 27017)
+db = client['tpch']
+
+# Define the query period
+start_date = datetime(1994, 1, 1)
+end_date = datetime(1995, 1, 1)
+
+# Aggregation query for MongoDB
+pipeline = [
+    {
+        '$lookup': {
+            'from': 'orders',
+            'localField': 'L_ORDERKEY',
+            'foreignField': 'O_ORDERKEY',
+            'as': 'order_docs'
+        }
+    },
+    {
+        '$match': {
+            'L_SHIPDATE': {'$lt': '$L_COMMITDATE'},
+            'L_RECEIPTDATE': {'$gte': start_date, '$lt': end_date},
+            'L_RECEIPTDATE': {'$gt': '$L_COMMITDATE'},
+            'L_SHIPMODE': {'$in': ['MAIL', 'SHIP']}
+        }
+    },
+    {
+        '$project': {
+            'L_SHIPMODE': 1,
+            'O_ORDERPRIORITY': '$order_docs.O_ORDERPRIORITY'
+        }
+    },
+    {
+        '$unwind': '$O_ORDERPRIORITY'
+    },
+    {
+        '$group': {
+            '_id': {
+                'L_SHIPMODE': '$L_SHIPMODE',
+                'PriorityGroup': {
+                    '$cond': {
+                        'if': {'$in': ['$O_ORDERPRIORITY', ['URGENT', 'HIGH']]},
+                        'then': 'URGENT/HIGH',
+                        'else': 'OTHER'
+                    }
+                }
+            },
+            'LateLineItemCount': {'$sum': 1}
+        }
+    },
+    {
+        '$sort': {'_id.L_SHIPMODE': 1, '_id.PriorityGroup': -1}
+    },
+    {
+        '$project': {
+            'L_SHIPMODE': '$_id.L_SHIPMODE',
+            'PriorityGroup': '$_id.PriorityGroup',
+            'LateLineItemCount': '$LateLineItemCount',
+            '_id': 0
+        }
+    }
+]
+
+# Run the aggregation query
+results = list(db['lineitem'].aggregate(pipeline))
+
+# Write results to a CSV file
+with open('query_output.csv', mode='w', newline='') as file:
+    writer = csv.DictWriter(file, fieldnames=['L_SHIPMODE', 'PriorityGroup', 'LateLineItemCount'])
+    writer.writeheader()
+    writer.writerows(results)
+```
+
+2. Bash Script (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Update system
+apt-get update
+# Install pip (Python package installer)
+apt-get install -y python3-pip
+# Install pymongo using pip
+pip3 install pymongo
+```
+created_time, 1701047892
+completion_tokens, 591
+prompt_tokens, 484
+total_tokens, 1075

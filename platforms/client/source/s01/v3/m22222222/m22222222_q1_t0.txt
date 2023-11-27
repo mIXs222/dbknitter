@@ -1,0 +1,71 @@
+uid, chatcmpl-8LHKeCfSwa6M3w3LbWpuXCzNOG3nP
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n\n\nBut a user thought that all the data is stored in mysql, and wrote the following query: ```sql\n\nSELECT\n    L_RETURNFLAG,\n    L_LINESTATUS,\n    SUM(L_QUANTITY) AS SUM_QTY,\n    SUM(L_EXTENDEDPRICE) AS SUM_BASE_PRICE,\n    SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS SUM_DISC_PRICE,\n    SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT) * (1 + L_TAX)) AS SUM_CHARGE,\n    AVG(L_QUANTITY) AS AVG_QTY,\n    AVG(L_EXTENDEDPRICE) AS AVG_PRICE,\n    AVG(L_DISCOUNT) AS AVG_DISC,\n    COUNT(*) AS COUNT_ORDER\nFROM\n    lineitem\nWHERE\n    L_SHIPDATE <= '1998-09-02'\nGROUP BY\n    L_RETURNFLAG,\n    L_LINESTATUS\nORDER BY\n    L_RETURNFLAG,\n    L_LINESTATUS\n\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database. Use the python library 'mysql.connector' to connect the mysql server. Use 'pymongo' to connect to the mongodb server. Use 'direct_redis' to read Pandas DataFrame using get('tablename')."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 9.5367431640625e-07
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, 1. Python Code:
+
+```python
+from direct_redis import DirectRedis
+import pandas as pd
+import csv
+
+# Assuming the data is saved in form of list of dictionaries
+# each representing a row in the table
+
+# Connecting to Redis
+client = DirectRedis(host='redis', port=6379, db=0)
+
+# Retrieving data
+data = client.get('lineitem')
+
+# Converting data to DataFrame
+df = pd.DataFrame(data)
+
+# Date filtering
+df['L_SHIPDATE'] = pd.to_datetime(df['L_SHIPDATE'])
+df = df[df['L_SHIPDATE'] <= '1998-09-02']
+
+# Aggregation
+grouped_df = df.groupby(['L_RETURNFLAG', 'L_LINESTATUS']).agg(
+    SUM_QTY=pd.NamedAgg(column='L_QUANTITY', aggfunc='sum'),
+    SUM_BASE_PRICE=pd.NamedAgg(column='L_EXTENDEDPRICE', aggfunc='sum'),
+    SUM_DISC_PRICE=pd.NamedAgg(column=(df['L_EXTENDEDPRICE'] * (1 - df['L_DISCOUNT'])), aggfunc='sum'),
+    SUM_CHARGE=pd.NamedAgg(column=(df['L_EXTENDEDPRICE'] * (1 - df['L_DISCOUNT']) * (1 + df['L_TAX'])), aggfunc='sum'),
+    AVG_QTY=pd.NamedAgg(column='L_QUANTITY', aggfunc='mean'),
+    AVG_PRICE=pd.NamedAgg(column='L_EXTENDEDPRICE', aggfunc='mean'),
+    AVG_DISC=pd.NamedAgg(column='L_DISCOUNT', aggfunc='mean'),
+    COUNT_ORDER=pd.NamedAgg(column='L_ORDERKEY', aggfunc='count')
+).reset_index()
+
+# Sorting
+grouped_df = grouped_df.sort_values(by=['L_RETURNFLAG', 'L_LINESTATUS'])
+
+# Writing to csv
+grouped_df.to_csv('query_output.csv', index=False)
+```
+
+2. Bash Script to install dependencies:
+
+```bash
+#!/bin/bash
+
+# Install Python and pip
+sudo apt update
+sudo apt install -y python3.7
+sudo apt install -y python3-pip
+
+# Install required Python libraries
+pip3 install pandas
+pip3 install direct_redis
+```
+
+You can save the Bash script in a file with the extension `.sh`, such as `setup.sh` and then give it execution permission with the command `chmod +x setup.sh`. Running the script will install the required dependencies as instructed. You can run the script in the terminal with the command `./setup.sh`.
+created_time, 1700082204
+completion_tokens, 517
+prompt_tokens, 470
+total_tokens, 987

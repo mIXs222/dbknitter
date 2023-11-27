@@ -1,0 +1,71 @@
+uid, chatcmpl-8LH8ypNZ4IaCZSnZ5aUvLjUevbCo8
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: part, supplier, partsupp\nthe table schema are as follows:\npart(table name): column P_PARTKEY, column P_NAME, column P_MFGR, column P_BRAND, column P_TYPE, column P_SIZE, column P_CONTAINER, column P_RETAILPRICE, column P_COMMENT\nsupplier(table name): column S_SUPPKEY, column S_NAME, column S_ADDRESS, column S_NATIONKEY, column S_PHONE, column S_ACCTBAL, column S_COMMENT\npartsupp(table name): column PS_PARTKEY, column PS_SUPPKEY, column PS_AVAILQTY, column PS_SUPPLYCOST, column PS_COMMENT\nthe database admin info are as follows:\ndatabase name: tpch\nport: 27017\nhostname: mongodb\n\n \nBut the user of my data thinks all the data is stored in mysql.\nWith that assumption, they wrote the following query: \nSELECT\n    P_BRAND,\n    P_TYPE,\n    P_SIZE,\n    COUNT(DISTINCT PS_SUPPKEY) AS SUPPLIER_CNT\nFROM\n    partsupp,\n    part\nWHERE\n    P_PARTKEY = PS_PARTKEY\n    AND P_BRAND <> 'Brand#45'\n    AND P_TYPE NOT LIKE 'MEDIUM POLISHED%'\n    AND P_SIZE IN (49, 14, 23, 45, 19, 3, 36, 9)\n    AND PS_SUPPKEY NOT IN (\n        SELECT\n            S_SUPPKEY\n        FROM\n            supplier\n        WHERE\n            S_COMMENT LIKE '%Customer%Complaints%'\n    )\nGROUP BY\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\nORDER BY\n    SUPPLIER_CNT DESC,\n    P_BRAND,\n    P_TYPE,\n    P_SIZE\n\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Please seperately output 1. the bash commandspython code(.py) and 2. a bash command file (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database. Use the python library 'mysql.connector' to connect the mysql server. Use 'pymongo' to connect to the mongodb server."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 9.5367431640625e-07
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, Here is your python code:`main.py`
+
+```python
+import pymongo
+import csv
+from bson.code import Code
+
+# connect to mongodb
+client = pymongo.MongoClient('mongodb://localhost:27017/')
+db = client['tpch']
+
+# get table as collection
+part = db.part
+supplier = db.supplier
+partsupp = db.partsupp
+
+# run mongo query
+mapper = Code("""
+    function() {
+        if(this.P_PARTKEY == this.PS_PARTKEY && this.P_BRAND != 'Brand#45' && this.P_TYPE.substring(0,14) != 'MEDIUM POLISHED' && 
+           this.P_SIZE in [49, 14, 23, 45, 19, 3, 36, 9] && this.PS_SUPPKEY not in [this.S_SUPPKEY where this.S_COMMENT.includes('Customer Complaints')]
+           ){
+           emit({ P_BRAND:this.P_BRAND, P_TYPE:this.P_TYPE, P_SIZE:this.P_SIZE}, {count:1});
+        }
+    }
+    """)
+
+reducer = Code("""
+    function(key, values){
+        var result = { count: 0 };
+        values.forEach(function(value){
+            result.count += value.count;
+        });
+        return result;
+    }
+    """)
+
+result = partsupp.map_reduce(mapper, reducer, "myresults")
+results = list(result.find())
+
+# save to csv file
+headers = ['P_BRAND', 'P_TYPE', 'P_SIZE', 'SUPPLIER_CNT']
+
+with open('query_output.csv', 'w', newline='') as output_file:
+    dict_writer = csv.DictWriter(output_file, fieldnames = headers)
+    dict_writer.writeheader()
+    for data in results:
+        data['_id'][SUPPLIER_CNT] = data['value'][count]
+        dict_writer.writerow(data['_id'])
+```
+
+This is the setup bash file:`setup.sh`. Just copy the following content in an empty .sh file and run it to install the required dependencies:
+
+```bash
+#!/bin/bash
+pip install pymongo
+pip install mysql-connector-python
+```
+created_time, 1700081480
+completion_tokens, 430
+prompt_tokens, 514
+total_tokens, 944

@@ -1,0 +1,95 @@
+uid, chatcmpl-8PKNawjuOI5RCdXLWNWwT7G4Y4Jw9
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: orders, lineitem\nRelevant table names and their schemas in mysql:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: nation, region, part\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: supplier, customer\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query determines how the market share of INDA within ASIA has changed over two years for SMALL PLATED COPPER., The market share for INDA within ASIA is defined as the fraction of the revenue, the sum of [l_extendedprice * (1-l_discount)], from the products of SMALL PLATED COPPER in ASIA that was supplied by suppliers from INDIA. The query determines this for the years 1995 and 1996 presented in this order.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 25.70375108718872
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code to execute the query:
+
+```python
+# python_code.py
+
+import pymysql
+import pandas as pd
+import pymongo
+import direct_redis
+
+def get_mysql_data(connection_info):
+    connection = pymysql.connect(
+        host=connection_info['hostname'],
+        user=connection_info['username'],
+        password=connection_info['password'],
+        db=connection_info['database'])
+    try:
+        with connection.cursor() as cursor:
+            query = """
+                SELECT o.O_ORDERDATE,
+                    l.L_EXTENDEDPRICE * (1 - l.L_DISCOUNT) as revenue
+                FROM orders o
+                JOIN lineitem l ON o.O_ORDERKEY = l.L_ORDERKEY
+                WHERE YEAR(o.O_ORDERDATE) IN (1995, 1996);
+            """
+            cursor.execute(query)
+            result = cursor.fetchall()
+    finally:
+        connection.close()
+    return pd.DataFrame(result, columns=['O_ORDERDATE', 'revenue'])
+
+def get_mongodb_data(connection_info):
+    client = pymongo.MongoClient(connection_info['hostname'], connection_info['port'])
+    db = client[connection_info['database']]
+    part = pd.DataFrame(list(db.part.find({"P_TYPE": "SMALL PLATED COPPER"})))
+    region = pd.DataFrame(list(db.region.find({"R_NAME": "ASIA"})))
+    nation = pd.DataFrame(list(db.nation.find({"N_NAME": "INDIA"})))
+    client.close()
+    return part, region, nation
+
+def get_redis_data(connection_info):
+    direct_redis_conn = direct_redis.DirectRedis(host=connection_info['hostname'], port=connection_info['port'], db=connection_info['database'])
+    supplier = pd.read_json(direct_redis_conn.get('supplier'))
+    return supplier
+
+def main():
+    mysql_conn_info = {'database': 'tpch', 'username': 'root', 'password': 'my-secret-pw', 'hostname': 'mysql'}
+    mongodb_conn_info = {'database': 'tpch', 'port': 27017, 'hostname': 'mongodb'}
+    redis_conn_info = {'database': 0, 'port': 6379, 'hostname': 'redis'}
+    
+    orders_lineitem_data = get_mysql_data(mysql_conn_info)
+    part_data, region_data, nation_data = get_mongodb_data(mongodb_conn_info)
+    supplier_data = get_redis_data(redis_conn_info)
+
+    # Merge and calculate market share
+    supplier_data = supplier_data.merge(nation_data, left_on='S_NATIONKEY', right_on='N_NATIONKEY', how='inner')
+    orders_lineitem_data['year'] = pd.to_datetime(orders_lineitem_data['O_ORDERDATE']).dt.year
+    market_share = {}
+    for year in [1995, 1996]:
+        yearly_data = orders_lineitem_data[orders_lineitem_data['year'] == year]
+        total_revenue = yearly_data['revenue'].sum()
+        supplier_revenue = yearly_data.join(supplier_data.set_index('S_NATIONKEY'), on='S_NATIONKEY', how='inner')['revenue'].sum()
+        market_share[year] = supplier_revenue / total_revenue if total_revenue else 0
+
+    # Write the results to a CSV file
+    pd.DataFrame([market_share]).to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    main()
+```
+
+And this is the bash script to install all dependencies:
+
+```bash
+# install_dependencies.sh
+
+#!/bin/bash
+
+pip install pymysql pandas pymongo direct-redis
+```
+
+Please note that in this mixed-database environment, the responsibilities of combining data from different sources and performing calculations rest with the Python application, as opposed to a single SQL query which is not feasible here. Adjustments to the hostnames and other connection details may be needed depending on the specifics of your environment.
+created_time, 1701047230
+completion_tokens, 785
+prompt_tokens, 731
+total_tokens, 1516

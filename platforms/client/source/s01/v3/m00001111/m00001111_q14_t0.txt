@@ -1,0 +1,86 @@
+uid, chatcmpl-8LHQ6k4O6slFHbuJeqnSYNXokl7j3
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: part\nthe table schema are as follows:\npart(table name): column P_PARTKEY, column P_NAME, column P_MFGR, column P_BRAND, column P_TYPE, column P_SIZE, column P_CONTAINER, column P_RETAILPRICE, column P_COMMENT\nthe database admin info are as follows:\ndatabase name: tpch\nusername: root\npassword: my-secret-pw\nhostname: mysql\n\nmongodb has database named tpch with tables: lineitem\nthe table schema are as follows:\nlineitem(table name): column L_ORDERKEY, column L_PARTKEY, column L_SUPPKEY, column L_LINENUMBER, column L_QUANTITY, column L_EXTENDEDPRICE, column L_DISCOUNT, column L_TAX, column L_RETURNFLAG, column L_LINESTATUS, column L_SHIPDATE, column L_COMMITDATE, column L_RECEIPTDATE, column L_SHIPINSTRUCT, column L_SHIPMODE, column L_COMMENT\nthe database admin info are as follows:\ndatabase name: tpch\nport: 27017\nhostname: mongodb\n\n \nBut the user of my data thinks all the data is stored in mysql.\nWith that assumption, they wrote the following query: \nSELECT\n    100.00 * SUM(CASE WHEN P_TYPE LIKE 'PROMO%' THEN L_EXTENDEDPRICE * (1 - L_DISCOUNT)\n    ELSE 0\n    END) / SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS PROMO_REVENUE\nFROM\n    lineitem,\n    part\nWHERE\n    L_PARTKEY = P_PARTKEY\n    AND L_SHIPDATE >= '1995-09-01'\n    AND L_SHIPDATE < '1995-10-01'\n\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Please seperately output 1. the bash commandspython code(.py) and 2. a bash command file (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database. Use the python library 'mysql.connector' to connect the mysql server. Use 'pymongo' to connect to the mongodb server."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 7.152557373046875e-07
+output_text, 
+gpt_model, gpt-4
+finished_reason, stop
+response, Python Code (app.py):
+
+```python
+import mysql.connector
+from pymongo import MongoClient
+import pandas as pd
+from datetime import datetime
+
+# connect to Mysql
+mydb = mysql.connector.connect(
+  host="mysql",
+  user="root",
+  password="my-secret-pw",
+  database="tpch",
+)
+
+# select data from part table
+mycursor = mydb.cursor()
+mycursor.execute("SELECT * FROM part")
+part_data = mycursor.fetchall()
+part_df = pd.DataFrame(part_data, columns=['P_PARTKEY', 'P_NAME', 'P_MFGR', 'P_BRAND', 'P_TYPE', 'P_SIZE', 'P_CONTAINER', 'P_RETAILPRICE', 'P_COMMENT'])
+
+# connect to MongoDB
+client = MongoClient("mongodb:27017")
+db = client.tpch
+
+# select data from lineitem table
+cursor = db.lineitem.find()
+lineitem_data =  [li for li in cursor]
+lineitem_df = pd.DataFrame(lineitem_data)
+lineitem_df['L_SHIPDATE'] = lineitem_df['L_SHIPDATE'].apply(lambda x: datetime.strptime(x, "%Y-%m-%d"))
+
+# merge the dataframes
+merged_df = pd.merge(lineitem_df, part_df, how="inner", left_on="L_PARTKEY", right_on="P_PARTKEY")
+
+# filter data based on conditions
+merged_df = merged_df[(merged_df['L_SHIPDATE'] >= '1995-09-01') & (merged_df['L_SHIPDATE'] < '1995-10-01')]
+
+#calculation
+merged_df['CALCULATION'] = merged_df.apply(lambda row: row['L_EXTENDEDPRICE'] * (1 - row['L_DISCOUNT']) if row['P_TYPE'].startswith('PROMO') else 0, axis=1)
+PROMO_REVENUE = 100.00 * merged_df['CALCULATION'].sum() / (merged_df['L_EXTENDEDPRICE'] * (1 - merged_df['L_DISCOUNT'])).sum()
+
+# write to csv file
+out_df=pd.DataFrame([PROMO_REVENUE], columns=['PROMO_REVENUE'])
+out_df.to_csv('query_output.csv', index=False)
+```
+
+Bash Commands to install all dependencies (requirements.sh):
+
+```bash
+!#/bin/bash
+sudo apt-get update
+sudo apt-get -y install python3
+sudo apt-get -y install python3-pip
+pip3 install mysql-connector-python
+pip3 install pymongo
+pip3 install pandas
+```
+
+To run the python script:
+
+```bash
+python3 app.py
+```
+
+To install the requirements:
+
+```bash
+chmod +x requirements.sh
+./requirements.sh
+```
+
+Notice that in Pandas' merge function, I am assuming "how" is "inner" and "on" is ["L_PARTKEY", "P_PARTKEY"] which was not specifically in the original question.
+created_time, 1700082542
+completion_tokens, 606
+prompt_tokens, 508
+total_tokens, 1114

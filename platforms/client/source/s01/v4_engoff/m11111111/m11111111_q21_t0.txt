@@ -1,0 +1,100 @@
+uid, chatcmpl-8PHVnVQvI69OBr6capqEG5iYJ56K7
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: nation, supplier, orders, lineitem\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Suppliers Who Kept Orders Waiting query identifies suppliers, for a nation which is SAUDI ARABIA, whose product was part of a multi-supplier order (with current status of 'F') where they were the only supplier who failed to meet the committed delivery date.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 21.664711952209473
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code:
+
+```python
+from pymongo import MongoClient
+import csv
+
+# Establish a connection to the MongoDB server
+client = MongoClient('mongodb', 27017)
+
+# Select the database and collections
+db = client['tpch']
+nation_collection = db['nation']
+supplier_collection = db['supplier']
+orders_collection = db['orders']
+lineitem_collection = db['lineitem']
+
+# Find the nation key for Saudi Arabia
+nation_key = None
+for nation in nation_collection.find({'N_NAME': 'SAUDI ARABIA'}):
+    nation_key = nation['N_NATIONKEY']
+    break
+
+# Ensure the nation exists before proceeding
+if nation_key is None:
+    print("Nation 'SAUDI ARABIA' not found.")
+    exit()
+
+# Prepare to write output to CSV
+with open('query_output.csv', mode='w', newline='') as file:
+    writer = csv.writer(file)
+    # Write headers to CSV
+    writer.writerow(['SUPPLIER NO', 'SUPPLIER NAME'])
+
+    # Find suppliers from Saudi Arabia
+    supplier_keys = [supplier['S_SUPPKEY'] for supplier in supplier_collection.find({'S_NATIONKEY': nation_key})]
+
+    # Find orders with status 'F'
+    orders_with_status_f = orders_collection.find({'O_ORDERSTATUS': 'F'})
+
+    # Iterate over the orders and get details
+    for order in orders_with_status_f:
+        order_key = order['O_ORDERKEY']
+        
+        # Find lineitems with supplier key in our supplier list, and the conditions mentioned
+        lineitem_cursor = lineitem_collection.aggregate([
+            {
+                '$match': {
+                    'L_ORDERKEY': order_key,
+                    'L_SUPPKEY': {'$in': supplier_keys},
+                    'L_COMMITDATE': {'$lt': '$L_RECEIPTDATE'}
+                }
+            },
+            {
+                '$group': {
+                    '_id': '$L_ORDERKEY',
+                    'suppliers': {'$addToSet': '$L_SUPPKEY'},
+                    'count': {'$sum': 1}
+                }
+            }
+        ])
+
+        # Iterate over the result cursor
+        for lineitem in lineitem_cursor:
+            if lineitem['count'] == 1:  # Only one supplier responsible for the delay
+                # Fetch the supplier's details and write to CSV
+                supplier_key = lineitem['suppliers'][0]
+                supplier_details = supplier_collection.find_one({'S_SUPPKEY': supplier_key})
+                writer.writerow([supplier_key, supplier_details['S_NAME']])
+
+client.close()
+```
+
+Here is the Bash script for installing the dependencies:
+
+```bash
+#!/bin/bash
+
+# Create a virtual environment (optional)
+python3 -m venv mongoenv
+source mongoenv/bin/activate
+
+# Install pymongo
+pip install pymongo
+
+# Run the Python script (assuming it's named query_script.py)
+python query_script.py
+```
+created_time, 1701036207
+completion_tokens, 597
+prompt_tokens, 438
+total_tokens, 1035
