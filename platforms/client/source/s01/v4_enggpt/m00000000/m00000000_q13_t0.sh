@@ -1,11 +1,13 @@
 #!/bin/bash
-# This script is to install Python and required modules for the project
 
-# Update package index
-sudo apt update
+# Updating package index
+sudo apt-get update -y
 
-# Install Python3 and Python3-pip if they are not installed
-sudo apt install -y python3 python3-pip
+# Installing Python3 and pip3 if they aren't installed
+sudo apt-get install -y python3 python3-pip
 
-# Install the pymysql package using pip
+# Install MySQL client (just in case we need to connect to MySQL DB from terminal)
+sudo apt-get install -y mysql-client
+
+# Installing the necessary Python libraries
 pip3 install pymysql

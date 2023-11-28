@@ -1,0 +1,60 @@
+uid, chatcmpl-8PaLpFcIGuMVmUEpymFVpa5yHB9QN
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nConduct a thorough analysis to obtain statistics on customers based on specific criteria related to their phone numbers, account balances, and order history. The analysis aims to summarize the number of customers, their total account balances, and the corresponding country codes.\n\nData is sourced from the 'customer' and 'orders' tables. The main selection criteria are defined within a nested subquery:\n\nExtract the country codes ('CNTRYCODE') from the first two characters of customer phone numbers ('C_PHONE') using the SUBSTR function.\nInclude only customers with account balances ('C_ACCTBAL') greater than the average account balance for customers with positive balances in the specified country codes ('20', '40', '22', '30', '39', '42', '21').\nExclude customers who have placed orders using the NOT EXISTS condition.\nThe results, aliased as 'CUSTSALE,' are then aggregated based on country codes ('CNTRYCODE'). The summary includes the count of customers ('NUMCUST') and the sum of their account balances ('TOTACCTBAL'). The presentation orders the results in ascending order based on country codes.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.50307297706604
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (analyze_customers.py):
+
+```python
+import pandas as pd
+from direct_redis import DirectRedis
+
+def main():
+    # Connect to Redis
+    r = DirectRedis(host='redis', port=6379, db=0)
+
+    # Get dataframes
+    customer_df = pd.read_json(r.get('customer'))
+    orders_df = pd.read_json(r.get('orders'))
+
+    # Data preparation
+    customer_df['CNTRYCODE'] = customer_df['C_PHONE'].str[:2]
+    avg_positive_balances = customer_df.loc[customer_df['C_ACCTBAL'] > 0].groupby('CNTRYCODE')['C_ACCTBAL'].mean()
+    valid_cntrycodes = ['20', '40', '22', '30', '39', '42', '21']
+
+    # Filter data using the criteria
+    filtered_customers = customer_df[
+        (customer_df['CNTRYCODE'].isin(valid_cntrycodes)) &
+        (customer_df['C_ACCTBAL'] > customer_df['CNTRYCODE'].map(avg_positive_balances)) &
+        (~customer_df['C_CUSTKEY'].isin(orders_df['O_CUSTKEY']))
+    ]
+
+    # Aggregate data
+    stats = filtered_customers.groupby('CNTRYCODE').agg(
+        NUMCUST=pd.NamedAgg(column='C_CUSTKEY', aggfunc='count'),
+        TOTACCTBAL=pd.NamedAgg(column='C_ACCTBAL', aggfunc='sum')
+    ).reset_index()
+
+    # Sort and save to csv
+    stats.sort_values('CNTRYCODE').to_csv('query_output.csv', index=False)
+
+if __name__ == '__main__':
+    main()
+```
+
+2. Bash script (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+
+pip install pandas
+pip install direct_redis
+```
+created_time, 1701108625
+completion_tokens, 380
+prompt_tokens, 528
+total_tokens, 908

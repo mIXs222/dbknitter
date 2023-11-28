@@ -1,10 +1,12 @@
 #!/bin/bash
 
-# Update the package list
-apt-get update
+# install_dependencies.sh
 
-# Install Python and pip (if they aren't already installed)
-apt-get install python3 python3-pip -y
+# Upgrade pip to the latest version
+pip install --upgrade pip
 
-# Install the PyMySQL library
-pip3 install pymysql
+# Install pymysql
+pip install pymysql
+
+# Install python-csv
+pip install python-csv

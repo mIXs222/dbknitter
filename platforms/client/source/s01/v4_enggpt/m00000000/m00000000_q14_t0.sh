@@ -1,10 +1,11 @@
 #!/bin/bash
+# This script is used to install dependencies for the Python code provided above
 
-# Update the package list
+# Update package list
 sudo apt-get update
 
-# Install Python 3 and pip if not already present
-sudo apt-get install -y python3 python3-pip
+# Install Python3, pip and MySQL client
+sudo apt-get install python3 python3-pip mysql-client -y
 
-# Install the 'pymysql' library using pip
+# Install the pymysql package using pip
 pip3 install pymysql

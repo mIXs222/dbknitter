@@ -1,0 +1,93 @@
+uid, chatcmpl-8PamQPZQLK8LAZb9OsSVRZ6VceDaz
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: orders\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: customer\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nConduct a thorough analysis to obtain statistics on customers based on specific criteria related to their phone numbers, account balances, and order history. The analysis aims to summarize the number of customers, their total account balances, and the corresponding country codes.\n\nData is sourced from the 'customer' and 'orders' tables. The main selection criteria are defined within a nested subquery:\n\nExtract the country codes ('CNTRYCODE') from the first two characters of customer phone numbers ('C_PHONE') using the SUBSTR function.\nInclude only customers with account balances ('C_ACCTBAL') greater than the average account balance for customers with positive balances in the specified country codes ('20', '40', '22', '30', '39', '42', '21').\nExclude customers who have placed orders using the NOT EXISTS condition.\nThe results, aliased as 'CUSTSALE,' are then aggregated based on country codes ('CNTRYCODE'). The summary includes the count of customers ('NUMCUST') and the sum of their account balances ('TOTACCTBAL'). The presentation orders the results in ascending order based on country codes.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 30.61520290374756
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (query.py) to execute the multi-database query and write the result to a CSV file:
+
+```python
+import pandas as pd
+import pymongo
+from direct_redis import DirectRedis
+
+# ---- MONGODB CONNECTION ---- #
+def get_mongodb_orders():
+    client = pymongo.MongoClient("mongodb", 27017)
+    db = client['tpch']
+    orders_collection = db['orders']
+    orders_df = pd.DataFrame(list(orders_collection.find()))
+    client.close()
+    return orders_df
+
+# ---- REDIS CONNECTION ---- #
+def get_redis_customers():
+    dredis = DirectRedis(host='redis', port=6379, db=0)
+    customer_df = pd.read_json(dredis.get('customer'))
+    return customer_df
+
+# ---- PROCESSING DATA ---- #
+def process_data():
+    # Retrieve data
+    orders_df = get_mongodb_orders()
+    customer_df = get_redis_customers()
+
+    # Extract country codes
+    customer_df['CNTRYCODE'] = customer_df['C_PHONE'].str[:2]
+
+    # Calculate average account balance for given country codes
+    country_codes = ['20', '40', '22', '30', '39', '42', '21']
+    avg_acct_bal = customer_df[
+        customer_df['C_ACCTBAL'] > 0 & customer_df['CNTRYCODE'].isin(country_codes)
+    ].groupby('CNTRYCODE')['C_ACCTBAL'].mean().to_dict()
+
+    # Filter customers based on account balance criteria
+    def filter_customers(row):
+        return row['C_ACCTBAL'] > avg_acct_bal.get(row['CNTRYCODE'], 0)
+    valid_customers = customer_df[customer_df.apply(filter_customers, axis=1)]
+
+    # Exclude customers with existing orders
+    orders_cust_keys = orders_df['O_CUSTKEY'].unique()
+    valid_customers = valid_customers[~valid_customers['C_CUSTKEY'].isin(orders_cust_keys)]
+
+    # Aggregate data
+    custsale = valid_customers.groupby('CNTRYCODE').agg(
+        NUMCUST=pd.NamedAgg(column='C_CUSTKEY', func='count'),
+        TOTACCTBAL=pd.NamedAgg(column='C_ACCTBAL', func='sum')
+    ).reset_index().sort_values('CNTRYCODE')
+
+    # Write to CSV
+    custsale.to_csv('query_output.csv', index=False)
+
+# ---- MAIN EXECUTION ---- #
+if __name__ == '__main__':
+    process_data()
+```
+
+And here is the Bash script (install_dependencies.sh) to install all needed dependencies to run the Python code:
+
+```bash
+#!/bin/bash
+
+# Updating package list and upgrading packages
+apt-get update -y
+apt-get upgrade -y
+
+# Installing Python 3 and Pip
+apt-get install python3 -y
+apt-get install python3-pip -y
+
+# Installing required Python packages
+pip3 install pymongo
+pip3 install pandas
+pip3 install git+https://github.com/bluele/direct_redis.git  # Assuming direct_redis is not on PyPI
+```
+
+Please remember to set executable permission on the bash script with `chmod +x install_dependencies.sh` and then run it before executing the Python script with `python3 query.py`.
+created_time, 1701110274
+completion_tokens, 677
+prompt_tokens, 592
+total_tokens, 1269

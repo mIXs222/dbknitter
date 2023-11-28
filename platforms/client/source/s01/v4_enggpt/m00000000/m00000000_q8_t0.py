@@ -1,48 +1,53 @@
-# market_share_analysis.py
-
 import pymysql
 import csv
-from datetime import datetime
+
+# Define the MySQL connection parameters
+mysql_config = {
+    'host': 'mysql',
+    'user': 'root',
+    'password': 'my-secret-pw',
+    'database': 'tpch'
+}
 
 # Connect to the MySQL database
-connection = pymysql.connect(host='mysql',
-                             user='root',
-                             password='my-secret-pw',
-                             database='tpch',
-                             charset='utf8mb4')
-
+mysql_conn = pymysql.connect(**mysql_config)
 try:
-    with connection.cursor() as cursor:
-        # SQL query
-        query = """
-        SELECT YEAR(O_ORDERDATE) AS order_year, 
-               (SUM(CASE WHEN N_NAME = 'INDIA' THEN L_EXTENDEDPRICE * (1 - L_DISCOUNT) ELSE 0 END) /
-               SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT))) AS market_share
-        FROM lineitem
-        JOIN orders ON L_ORDERKEY = O_ORDERKEY
-        JOIN customer ON O_CUSTKEY = C_CUSTKEY
-        JOIN nation ON C_NATIONKEY = N_NATIONKEY
-        JOIN region ON N_REGIONKEY = R_REGIONKEY
-        JOIN part ON L_PARTKEY = P_PARTKEY
-        JOIN supplier ON L_SUPPKEY = S_SUPPKEY
-        WHERE R_NAME = 'ASIA'
-          AND P_TYPE = 'SMALL PLATED COPPER'
-          AND N_NAME = 'INDIA'
-          AND YEAR(O_ORDERDATE) BETWEEN 1995 AND 1996
-        GROUP BY order_year
-        ORDER BY order_year ASC;
-        """
-        
-        cursor.execute(query)
-        results = cursor.fetchall()
+    mysql_cursor = mysql_conn.cursor()
 
-        # Write query results to CSV
-        with open('query_output.csv', 'w', newline='') as csvfile:
-            fieldnames = ['order_year', 'market_share']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            for row in results:
-                writer.writerow({'order_year': row[0], 'market_share': row[1]})
+    # Define the query to be executed
+    mysql_query = """
+    SELECT O_ORDERDATE, SUM(IF(N_NAME = 'INDIA', L_EXTENDEDPRICE * (1 - L_DISCOUNT), 0)) AS volume_india,
+           SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS total_volume
+    FROM lineitem
+    JOIN orders ON L_ORDERKEY = O_ORDERKEY
+    JOIN customer ON O_CUSTKEY = C_CUSTKEY
+    JOIN nation ON C_NATIONKEY = N_NATIONKEY
+    JOIN region ON N_REGIONKEY = R_REGIONKEY
+    JOIN supplier ON L_SUPPKEY = S_SUPPKEY
+    JOIN part ON L_PARTKEY = P_PARTKEY
+    WHERE P_TYPE = 'SMALL PLATED COPPER'
+      AND R_NAME = 'ASIA'
+      AND O_ORDERDATE BETWEEN '1995-01-01' AND '1996-12-31'
+    GROUP BY YEAR(O_ORDERDATE)
+    ORDER BY YEAR(O_ORDERDATE) ASC;
+    """
+
+    # Execute the query
+    mysql_cursor.execute(mysql_query)
+
+    # Fetch the results
+    results = mysql_cursor.fetchall()
+
+    # Write the query output to a CSV file
+    with open('query_output.csv', mode='w', newline='') as file:
+        writer = csv.writer(file)
+        # Write the headers
+        writer.writerow(["Year", "Market Share in India"])
+        # Write the data
+        for row in results:
+            year = row[0].year
+            market_share = row[1] / row[2] if row[2] else 0  # Avoid division by zero
+            writer.writerow([year, market_share])
 
 finally:
-    connection.close()
+    mysql_conn.close()

@@ -1,58 +1,50 @@
 import pymysql
 import csv
 
-# Establish connection to the MySQL database
-connection = pymysql.connect(host='mysql', user='root', password='my-secret-pw', db='tpch')
+# MySQL connection setup
+mysql_connection = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    database='tpch',
+    charset='utf8mb4',
+    cursorclass=pymysql.cursors.Cursor
+)
 
-# Create a cursor object
-cursor = connection.cursor()
+try:
+    with mysql_connection.cursor() as cursor:
+        # SQL Query
+        query = """
+        SELECT SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS revenue
+        FROM lineitem
+        INNER JOIN part ON part.P_PARTKEY = lineitem.L_PARTKEY
+        WHERE (part.P_BRAND = 'Brand#12'
+            AND part.P_CONTAINER IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
+            AND lineitem.L_QUANTITY BETWEEN 1 AND 11
+            AND part.P_SIZE BETWEEN 1 AND 5
+            AND lineitem.L_SHIPMODE IN ('AIR', 'AIR REG')
+            AND lineitem.L_SHIPINSTRUCT = 'DELIVER IN PERSON')
+        OR   (part.P_BRAND = 'Brand#23'
+            AND part.P_CONTAINER IN ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
+            AND lineitem.L_QUANTITY BETWEEN 10 AND 20
+            AND part.P_SIZE BETWEEN 1 AND 10
+            AND lineitem.L_SHIPMODE IN ('AIR', 'AIR REG')
+            AND lineitem.L_SHIPINSTRUCT = 'DELIVER IN PERSON')
+        OR   (part.P_BRAND = 'Brand#34'
+            AND part.P_CONTAINER IN ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
+            AND lineitem.L_QUANTITY BETWEEN 20 AND 30
+            AND part.P_SIZE BETWEEN 1 AND 15
+            AND lineitem.L_SHIPMODE IN ('AIR', 'AIR REG')
+            AND lineitem.L_SHIPINSTRUCT = 'DELIVER IN PERSON')
+        """
 
-# SQL query to be executed
-sql_query = """
-SELECT
-    SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS revenue
-FROM
-    lineitem
-JOIN
-    part ON lineitem.L_PARTKEY = part.P_PARTKEY
-WHERE
-    (
-        P_BRAND = 'Brand#12'
-        AND P_CONTAINER IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
-        AND L_QUANTITY BETWEEN 1 AND 11
-        AND P_SIZE BETWEEN 1 AND 5
-        AND L_SHIPMODE IN ('AIR', 'AIR REG')
-        AND L_SHIPINSTRUCT = 'DELIVER IN PERSON'
-    ) OR (
-        P_BRAND = 'Brand#23'
-        AND P_CONTAINER IN ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
-        AND L_QUANTITY BETWEEN 10 AND 20
-        AND P_SIZE BETWEEN 1 AND 10
-        AND L_SHIPMODE IN ('AIR', 'AIR REG')
-        AND L_SHIPINSTRUCT = 'DELIVER IN PERSON'
-    ) OR (
-        P_BRAND = 'Brand#34'
-        AND P_CONTAINER IN ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
-        AND L_QUANTITY BETWEEN 20 AND 30
-        AND P_SIZE BETWEEN 1 AND 15
-        AND L_SHIPMODE IN ('AIR', 'AIR REG')
-        AND L_SHIPINSTRUCT = 'DELIVER IN PERSON'
-    )
-"""
+        cursor.execute(query)
+        result = cursor.fetchone()
 
-# Execute the SQL query
-cursor.execute(sql_query)
-
-# Fetch all the records
-records = cursor.fetchall()
-
-# Write records to CSV
-with open('query_output.csv', mode='w', newline='') as file:
-    writer = csv.writer(file)
-    writer.writerow(['revenue'])
-    for row in records:
-        writer.writerow(row)
-
-# Close the cursor and connection
-cursor.close()
-connection.close()
+        if result:
+            with open('query_output.csv', 'w', newline='') as csvfile:
+                csvwriter = csv.writer(csvfile)
+                csvwriter.writerow(['total_revenue'])
+                csvwriter.writerow([result[0]])
+finally:
+    mysql_connection.close()

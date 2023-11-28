@@ -1,50 +1,42 @@
 import pymysql
 import csv
-from decimal import Decimal
+from datetime import datetime
 
-# Database connection
-conn_info = {
-    "host": "mysql",
-    "user": "root",
-    "password": "my-secret-pw",
-    "db": "tpch",
-    "charset": "utf8mb4"
-}
+# Establish a connection to the MySQL database
+connection = pymysql.connect(host='mysql',
+                             user='root',
+                             password='my-secret-pw',
+                             database='tpch')
 
-# Function to execute query in MySQL and return results
-def query_mysql(query, connection_info):
-    try:
-        connection = pymysql.connect(**connection_info)
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            results = cursor.fetchall()
-        return results
-    finally:
-        connection.close()
+try:
+    with connection.cursor() as cursor:
+        # Query for promotional revenue
+        promo_revenue_query = """
+        SELECT SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS promo_revenue
+        FROM lineitem
+        JOIN part ON lineitem.L_PARTKEY = part.P_PARTKEY
+        WHERE part.P_TYPE LIKE 'PROMO%%'
+        AND lineitem.L_SHIPDATE BETWEEN '1995-09-01' AND '1995-09-30';
+        """
+        cursor.execute(promo_revenue_query)
+        promo_revenue = cursor.fetchone()[0]
 
-# Define the SQL query
-query = """
-SELECT 
-    SUM(CASE WHEN p.P_TYPE LIKE 'PROMO%%' THEN l.L_EXTENDEDPRICE * (1 - l.L_DISCOUNT) ELSE 0 END) AS promo_revenue,
-    SUM(l.L_EXTENDEDPRICE * (1 - l.L_DISCOUNT)) AS total_revenue
-FROM 
-    lineitem l 
-INNER JOIN 
-    part p ON l.L_PARTKEY = p.P_PARTKEY
-WHERE 
-    l.L_SHIPDATE BETWEEN '1995-09-01' AND '1995-09-30';
-"""
+        # Query for total revenue
+        total_revenue_query = """
+        SELECT SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS total_revenue
+        FROM lineitem
+        WHERE L_SHIPDATE BETWEEN '1995-09-01' AND '1995-09-30';
+        """
+        cursor.execute(total_revenue_query)
+        total_revenue = cursor.fetchone()[0]
 
-# Execute the query
-results = query_mysql(query, conn_info)
+        # Calculate promotional revenue percentage
+        promo_revenue_percentage = (promo_revenue / total_revenue) * 100 if total_revenue else 0
 
-# Calculate the percentage of promotional revenue
-promo_revenue = results[0][0] if results and results[0] and results[0][0] else Decimal(0)
-total_revenue = results[0][1] if results and results[0] and results[0][1] else Decimal(0)
-promo_percentage = (promo_revenue / total_revenue * 100) if total_revenue else Decimal(0)
-
-# Write output to CSV
-with open('query_output.csv', mode='w', newline='') as file:
-    writer = csv.writer(file)
-    writer.writerow(['Promo Revenue', 'Total Revenue', 'Promo Revenue Percentage'])
-    writer.writerow([str(promo_revenue), str(total_revenue), str(promo_percentage)])
+    # Write the results to a CSV file
+    with open('query_output.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Promo Revenue', 'Total Revenue', 'Promo Revenue Percentage'])
+        writer.writerow([promo_revenue, total_revenue, promo_revenue_percentage])
+finally:
+    connection.close()

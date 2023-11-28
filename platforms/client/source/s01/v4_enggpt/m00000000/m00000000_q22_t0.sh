@@ -1,10 +1,17 @@
 #!/bin/bash
 
-# Update package list
-apt-get update
+# Update repositories and install Python3 and pip if not installed
+sudo apt-get update
 
-# Install pip if not available
-apt-get install -y python3-pip
+# Check if Python is installed
+if ! python3 --version &>/dev/null; then
+    sudo apt-get install -y python3
+fi
 
-# Install pymysql using pip
+# Check if pip is installed
+if ! pip3 --version &>/dev/null; then
+    sudo apt-get install -y python3-pip
+fi
+
+# Install PyMySQL library
 pip3 install pymysql

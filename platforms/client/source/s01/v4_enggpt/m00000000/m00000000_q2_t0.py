@@ -2,53 +2,61 @@ import pymysql
 import csv
 
 # Database connection details
-mysql_connection_details = {
+mysql_conn_info = {
     'host': 'mysql',
     'user': 'root',
     'password': 'my-secret-pw',
     'db': 'tpch',
 }
 
-try:
-    # Connect to the MySQL database
-    mysql_conn = pymysql.connect(**mysql_connection_details)
-    mysql_cursor = mysql_conn.cursor()
+# Connect to the MySQL database
+mysql_conn = pymysql.connect(**mysql_conn_info)
+cursor = mysql_conn.cursor()
 
-    # SQL Query
-    sql_query = """
-    SELECT
-        S.S_ACCTBAL, S.S_NAME, S.S_ADDRESS, S.S_PHONE, S.S_COMMENT,
-        P.P_PARTKEY, P.P_MFGR, P.P_SIZE,
-        N.N_NAME
-    FROM
-        supplier S
-        JOIN nation N ON S.S_NATIONKEY = N.N_NATIONKEY
-        JOIN region R ON N.N_REGIONKEY = R.R_REGIONKEY
-        JOIN partsupp PS ON S.S_SUPPKEY = PS.PS_SUPPKEY
-        JOIN part P ON PS.PS_PARTKEY = P.P_PARTKEY
-    WHERE
-        P.P_SIZE = 15
-        AND P.P_TYPE LIKE '%BRASS'
-        AND R.R_NAME = 'EUROPE'
-    GROUP BY S.S_SUPPKEY
-    HAVING PS.PS_SUPPLYCOST = MIN(PS.PS_SUPPLYCOST)
-    ORDER BY
-        S.S_ACCTBAL DESC, N.N_NAME, S.S_NAME, P.P_PARTKEY
-    """
+# SQL query to execute
+mysql_query = """
+SELECT
+  s.S_ACCTBAL, s.S_NAME, s.S_ADDRESS, s.S_PHONE, s.S_COMMENT,
+  p.P_PARTKEY, p.P_MFGR, p.P_SIZE,
+  n.N_NAME
+FROM
+  supplier AS s
+  JOIN nation AS n ON s.S_NATIONKEY = n.N_NATIONKEY
+  JOIN region AS r ON n.N_REGIONKEY = r.R_REGIONKEY
+  JOIN partsupp AS ps ON s.S_SUPPKEY = ps.PS_SUPPKEY
+  JOIN part AS p ON ps.PS_PARTKEY = p.P_PARTKEY
+WHERE
+  r.R_NAME = 'EUROPE'
+  AND p.P_SIZE = 15
+  AND p.P_TYPE LIKE '%BRASS'
+  AND ps.PS_SUPPLYCOST = (
+    SELECT MIN(PS_SUPPLYCOST)
+    FROM partsupp, supplier, nation, region
+    WHERE partsupp.PS_SUPPKEY = supplier.S_SUPPKEY
+      AND supplier.S_NATIONKEY = nation.N_NATIONKEY
+      AND nation.N_REGIONKEY = region.R_REGIONKEY
+      AND region.R_NAME = 'EUROPE'
+  )
+ORDER BY 
+  s.S_ACCTBAL DESC,
+  n.N_NAME,
+  s.S_NAME,
+  p.P_PARTKEY
+"""
 
-    # Execute the SQL query
-    mysql_cursor.execute(sql_query)
-    result_set = mysql_cursor.fetchall()
+# Execute the query and fetch the data
+cursor.execute(mysql_query)
+data = cursor.fetchall()
 
-    # Write the results to a CSV file
-    with open('query_output.csv', 'w', newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        # Write the header row
-        csvwriter.writerow(['S_ACCTBAL', 'S_NAME', 'S_ADDRESS', 'S_PHONE', 'S_COMMENT', 'P_PARTKEY', 'P_MFGR', 'P_SIZE', 'N_NAME'])
-        # Write the data rows
-        for row in result_set:
-            csvwriter.writerow(row)
-finally:
-    # Close cursors and database connections
-    mysql_cursor.close()
-    mysql_conn.close()
+# Write data to csv file
+with open('query_output.csv', mode='w', newline='') as file:
+    writer = csv.writer(file)
+    # Write the headers to the csv file
+    writer.writerow(['S_ACCTBAL', 'S_NAME', 'S_ADDRESS', 'S_PHONE', 'S_COMMENT', 'P_PARTKEY', 'P_MFGR', 'P_SIZE', 'N_NAME'])
+    # Write the data to the csv file
+    for row in data:
+        writer.writerow(row)
+
+# Close the cursor and the connection
+cursor.close()
+mysql_conn.close()

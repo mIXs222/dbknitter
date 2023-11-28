@@ -1,82 +1,75 @@
-uid, chatcmpl-8PaH7vJY75Glwqzx76r7vdYI8Nr92
+uid, chatcmpl-8PZ5i5NxxHxcWaOArPWi9axLSLLrz
 message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: part, lineitem\nRelevant table names and their schemas in mysql:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nConduct a detailed analysis of promotional revenue as a percentage of total revenue for a specific timeframe. The analysis focuses on line items and parts where the shipping date falls between September 1, 1995, and September 30, 1995. The results aim to calculate the promotional revenue as a percentage of the total revenue generated during this period.\n\nData is sourced from the 'lineitem' and 'part' tables, establishing relationships between line items and their corresponding parts. The criteria for selection include matching part and line item keys, and ensuring that the shipping date is within the specified timeframe.\n\nThe calculation involves two components:\n\nThe sum of extended prices for line items with parts whose type starts with 'PROMO' (e.g., 'PROMO1', 'PROMO2'), adjusted for discounts.\nThe total sum of extended prices for all line items during the specified timeframe, also adjusted for discounts.\nThe percentage of promotional revenue is then computed as the ratio of the sum from step 1 to the sum from step 2, multiplied by 100.\n\nThe results provide valuable insights into the proportion of revenue generated from promotional parts compared to the overall revenue during the defined shipping timeframe.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
 input_message_len,[2]
 MAX_TOKEN, 2000
 data, 
-runtime, 31.031715154647827
+runtime, 27.372483015060425
 output_text, 
 gpt_model, gpt-4-1106-preview
 finished_reason, stop
-response, Here is the Python code to generate the required data:
+response, Here is the Python code to execute the given query:
 
 ```python
 import pymysql
 import csv
-from decimal import Decimal
+from datetime import datetime
 
-# Database connection
-conn_info = {
-    "host": "mysql",
-    "user": "root",
-    "password": "my-secret-pw",
-    "db": "tpch",
-    "charset": "utf8mb4"
-}
+# Establish a connection to the MySQL database
+connection = pymysql.connect(host='mysql',
+                             user='root',
+                             password='my-secret-pw',
+                             database='tpch')
 
-# Function to execute query in MySQL and return results
-def query_mysql(query, connection_info):
-    try:
-        connection = pymysql.connect(**connection_info)
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            results = cursor.fetchall()
-        return results
-    finally:
-        connection.close()
+try:
+    with connection.cursor() as cursor:
+        # Query for promotional revenue
+        promo_revenue_query = """
+        SELECT SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS promo_revenue
+        FROM lineitem
+        JOIN part ON lineitem.L_PARTKEY = part.P_PARTKEY
+        WHERE part.P_TYPE LIKE 'PROMO%%'
+        AND lineitem.L_SHIPDATE BETWEEN '1995-09-01' AND '1995-09-30';
+        """
+        cursor.execute(promo_revenue_query)
+        promo_revenue = cursor.fetchone()[0]
 
-# Define the SQL query
-query = """
-SELECT 
-    SUM(CASE WHEN p.P_TYPE LIKE 'PROMO%%' THEN l.L_EXTENDEDPRICE * (1 - l.L_DISCOUNT) ELSE 0 END) AS promo_revenue,
-    SUM(l.L_EXTENDEDPRICE * (1 - l.L_DISCOUNT)) AS total_revenue
-FROM 
-    lineitem l 
-INNER JOIN 
-    part p ON l.L_PARTKEY = p.P_PARTKEY
-WHERE 
-    l.L_SHIPDATE BETWEEN '1995-09-01' AND '1995-09-30';
-"""
+        # Query for total revenue
+        total_revenue_query = """
+        SELECT SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS total_revenue
+        FROM lineitem
+        WHERE L_SHIPDATE BETWEEN '1995-09-01' AND '1995-09-30';
+        """
+        cursor.execute(total_revenue_query)
+        total_revenue = cursor.fetchone()[0]
 
-# Execute the query
-results = query_mysql(query, conn_info)
+        # Calculate promotional revenue percentage
+        promo_revenue_percentage = (promo_revenue / total_revenue) * 100 if total_revenue else 0
 
-# Calculate the percentage of promotional revenue
-promo_revenue = results[0][0] if results and results[0] and results[0][0] else Decimal(0)
-total_revenue = results[0][1] if results and results[0] and results[0][1] else Decimal(0)
-promo_percentage = (promo_revenue / total_revenue * 100) if total_revenue else Decimal(0)
-
-# Write output to CSV
-with open('query_output.csv', mode='w', newline='') as file:
-    writer = csv.writer(file)
-    writer.writerow(['Promo Revenue', 'Total Revenue', 'Promo Revenue Percentage'])
-    writer.writerow([str(promo_revenue), str(total_revenue), str(promo_percentage)])
+    # Write the results to a CSV file
+    with open('query_output.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Promo Revenue', 'Total Revenue', 'Promo Revenue Percentage'])
+        writer.writerow([promo_revenue, total_revenue, promo_revenue_percentage])
+finally:
+    connection.close()
 ```
 
-And here is the Bash script to install all dependencies required to run the Python code:
+Here is the Bash script to install the necessary dependencies:
 
 ```bash
 #!/bin/bash
+# This script is used to install dependencies for the Python code provided above
 
-# Update the package list
+# Update package list
 sudo apt-get update
 
-# Install Python 3 and pip if not already present
-sudo apt-get install -y python3 python3-pip
+# Install Python3, pip and MySQL client
+sudo apt-get install python3 python3-pip mysql-client -y
 
-# Install the 'pymysql' library using pip
+# Install the pymysql package using pip
 pip3 install pymysql
 ```
-created_time, 1701108333
-completion_tokens, 509
+created_time, 1701103782
+completion_tokens, 457
 prompt_tokens, 585
-total_tokens, 1094
+total_tokens, 1042

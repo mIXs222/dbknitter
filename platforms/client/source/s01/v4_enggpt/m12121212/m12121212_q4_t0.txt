@@ -1,0 +1,86 @@
+uid, chatcmpl-8PbNUIp1zdk5Zz67y6KENwTTdH5oK
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: orders\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nRetrieve detailed insights into order priorities during a specific timeframe from July 1, 1993, to October 1, 1993. The analysis considers not just the number of orders but incorporates a nuanced criterion. Only orders with associated line items where the commitment date precedes the receipt date are included in the count.\n\nFor each order priority, calculate the count of such orders meeting the aforementioned conditions. This detailed examination aims to provide a granular understanding of how order priorities are distributed, taking into account the temporal constraints and the commitment-receipt date relationship of associated line items.\n\nThe final presentation orders the results in ascending order based on the order priority, offering a clear and insightful portrayal of order priorities and their counts within the specified timeframe.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 49.559019804000854
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python Code (`query_code.py`)
+
+```python
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+import csv
+from datetime import datetime
+
+# Constants
+mongodb_host = 'mongodb'
+mongodb_port = 27017
+mongodb_db_name = 'tpch'
+mongodb_collection = 'orders'
+redis_host = 'redis'
+redis_port = 6379
+redis_tablename = 'lineitem'
+date_format = '%Y-%m-%d'
+start_date = datetime.strptime('1993-07-01', date_format)
+end_date = datetime.strptime('1993-10-01', date_format)
+output_filename = 'query_output.csv'
+
+# Connect to MongoDB and retrieve orders within the date range
+mongo_client = pymongo.MongoClient(host=mongodb_host, port=mongodb_port)
+mongo_db = mongo_client[mongodb_db_name]
+orders_col = mongo_db[mongodb_collection]
+orders_query = {
+    'O_ORDERDATE': {'$gte': start_date, '$lt': end_date}
+}
+orders_projection = {
+    '_id': False,
+    'O_ORDERKEY': True,
+    'O_ORDERPRIORITY': True,
+}
+orders_df = pd.DataFrame(list(orders_col.find(orders_query, orders_projection)))
+
+# Connect to Redis and retrieve lineitem data
+redis_client = DirectRedis(host=redis_host, port=redis_port, db=int(redis_db_name))
+lineitem_data = redis_client.get(redis_tablename)
+lineitem_df = pd.read_json(lineitem_data)
+
+# Convert string dates to datetime objects
+lineitem_df['L_COMMITDATE'] = pd.to_datetime(lineitem_df['L_COMMITDATE'])
+lineitem_df['L_RECEIPTDATE'] = pd.to_datetime(lineitem_df['L_RECEIPTDATE'])
+
+# Filter lineitem rows where commitment date precedes receipt date
+lineitem_df = lineitem_df[lineitem_df['L_COMMITDATE'] < lineitem_df['L_RECEIPTDATE']]
+
+# Merge orders and lineitem datasets based on order keys
+filtered_orders_df = pd.merge(
+    orders_df,
+    lineitem_df,
+    left_on='O_ORDERKEY',
+    right_on='L_ORDERKEY'
+)
+
+# Count orders by order priority where the condition is met
+order_counts = filtered_orders_df.groupby('O_ORDERPRIORITY')['O_ORDERKEY'].nunique().reset_index()
+order_counts.columns = ['O_ORDERPRIORITY', 'COUNT']
+
+# Sort based on order priority
+sorted_order_counts = order_counts.sort_values(by='O_ORDERPRIORITY')
+
+# Write to CSV
+sorted_order_counts.to_csv(output_filename, index=False)
+```
+
+2. Bash Script (`install_dependencies.sh`)
+
+```bash
+#!/bin/bash
+pip install pymongo pandas direct-redis
+```
+created_time, 1701112572
+completion_tokens, 557
+prompt_tokens, 555
+total_tokens, 1112

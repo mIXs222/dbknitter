@@ -1,40 +1,40 @@
-# mysql_query.py
 import pymysql
 import csv
+from datetime import datetime
 
-# Connection details
-mysql_config = {
-    'host': 'mysql',
-    'user': 'root',
-    'password': 'my-secret-pw',
-    'db': 'tpch',
-}
+# MySQL connection
+def mysql_connection():
+    return pymysql.connect(host='mysql', user='root', passwd='my-secret-pw', db='tpch')
 
-# Connect to MySQL
-connection = pymysql.connect(**mysql_config)
-try:
-    with connection.cursor() as cursor:
-        # SQL query
-        query = """
-        SELECT O_ORDERPRIORITY, COUNT(DISTINCT O_ORDERKEY) as order_count
-        FROM orders
-        INNER JOIN lineitem ON O_ORDERKEY = L_ORDERKEY
-        WHERE O_ORDERDATE BETWEEN '1993-07-01' AND '1993-10-01'
-        AND L_COMMITDATE < L_RECEIPTDATE
-        GROUP BY O_ORDERPRIORITY
-        ORDER BY O_ORDERPRIORITY ASC;
-        """
-        cursor.execute(query)
+def write_to_csv(data):
+    with open('query_output.csv', mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Order Priority", "Count"]) # write header
+        writer.writerows(data)
 
-        # Fetch the results
-        results = cursor.fetchall()
+def fetch_data():
+    connection = mysql_connection()
+    try:
+        with connection.cursor() as cursor:
+            query = """
+                SELECT o.O_ORDERPRIORITY, COUNT(DISTINCT o.O_ORDERKEY) as order_count
+                FROM orders o
+                JOIN lineitem l
+                ON o.O_ORDERKEY = l.L_ORDERKEY
+                WHERE o.O_ORDERDATE BETWEEN '1993-07-01' AND '1993-10-01'
+                AND l.L_COMMITDATE < l.L_RECEIPTDATE
+                GROUP BY o.O_ORDERPRIORITY
+                ORDER BY o.O_ORDERPRIORITY ASC
+            """
+            cursor.execute(query)
+            result = cursor.fetchall()
+            return result
+    finally:
+        connection.close()
 
-        # Write results to CSV file
-        with open('query_output.csv', mode='w', newline='') as csvfile:
-            csv_writer = csv.writer(csvfile)
-            csv_writer.writerow(['O_ORDERPRIORITY', 'order_count'])
-            for row in results:
-                csv_writer.writerow(row)
+def main():
+    result = fetch_data()
+    write_to_csv(result)
 
-finally:
-    connection.close()
+if __name__ == "__main__":
+    main()

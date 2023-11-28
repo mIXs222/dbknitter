@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# Update package list and install python3 and pip
-sudo apt-get update
-sudo apt-get install -y python3 python3-pip
+# Upgrade pip to the latest version
+pip install --upgrade pip
 
-# Install pymysql
-python3 -m pip install pymysql
+# Install pymysql for MySQL database connection
+pip install pymysql
