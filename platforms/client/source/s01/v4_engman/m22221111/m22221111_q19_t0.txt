@@ -1,0 +1,98 @@
+uid, chatcmpl-8Q0POrNMC8yL7DQwyXfJhvtgoDX6n
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: lineitem\nRelevant table names and their schemas in mongodb:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: part\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Discounted Revenue query finds the gross discounted revenue for all orders for three different types of parts. Parts are selected based on the combination of specific brands, a list of containers, and a range of sizes. The first type has a brand id of 12, a container of 'SM CASE', 'SM BOX' 'SM PACK', or 'SM PKG', quantity which is greater than or eqaul to 1 and less than or equal to 11, size between 1 and 5. The second type has a brand id of 23, a container of 'MED BAG', 'MED BOX', 'MED PKG', or 'MED PACK', quantity which is greater than or eqaul to 10 and less than or equal to 20, size between 1 and 10. The third type has a brand id of 34, a container of 'LG CASE', 'LG BOX', 'LG PACK', or 'LG PKG', quantity which is greater than or eqaul to 20 and less than or equal to 30, size between 1 and 15. All should be shipped by air whose SHIPMODE is either 'AIR' or 'AIR REG' and delivered in person. The result only has one column, which is SUM(L_EXTENDEDPRICE* (1 - L_DISCOUNT)) AS REVENUE.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 35.13976812362671
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (query.py):
+
+```python
+# Required Imports
+import pymongo
+import direct_redis
+import pandas as pd
+import re
+
+# MongoDB Connection
+client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongodb = client["tpch"]
+lineitem_collection = mongodb["lineitem"]
+
+# Redis Connection
+r = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Getting data from Redis - Decode bytes to string
+part_data_str = r.get('part').decode('utf-8')
+
+# Using regex to find the tuples and strip the unwanted characters
+part_tuples = re.findall(r'\(([^\)]+)\)', part_data_str)
+part_rows = []
+
+for t in part_tuples:
+    row = t.split(',')
+    part_rows.append([e.strip("' ") for e in row])
+
+# Columns for part DataFrame
+part_columns = ["P_PARTKEY", "P_NAME", "P_MFGR", "P_BRAND", "P_TYPE", "P_SIZE", "P_CONTAINER", "P_RETAILPRICE", "P_COMMENT"]
+
+# Create DataFrame for part
+df_part = pd.DataFrame(part_rows, columns=part_columns)
+
+# Convert size to integer for filtering
+df_part["P_SIZE"] = df_part["P_SIZE"].astype(int)
+
+# Filter part based on the conditions
+type1_filter = (df_part["P_BRAND"] == "Brand#12") & (df_part["P_CONTAINER"].isin(["SM CASE", "SM BOX", "SM PACK", "SM PKG"])) & (df_part["P_SIZE"].between(1, 5))
+type2_filter = (df_part["P_BRAND"] == "Brand#23") & (df_part["P_CONTAINER"].isin(["MED BAG", "MED BOX", "MED PKG", "MED PACK"])) & (df_part["P_SIZE"].between(1, 10))
+type3_filter = (df_part["P_BRAND"] == "Brand#34") & (df_part["P_CONTAINER"].isin(["LG CASE", "LG BOX", "LG PACK", "LG PKG"])) & (df_part["P_SIZE"].between(1, 15))
+
+selected_parts = df_part[type1_filter | type2_filter | type3_filter]
+
+# MongoDB Query
+shipmode_conditions = {"L_SHIPMODE": {"$in": ["AIR", "AIR REG"]}}
+lineitem_cursor = lineitem_collection.find(shipmode_conditions, {"_id": 0, "L_PARTKEY": 1, "L_EXTENDEDPRICE": 1, "L_DISCOUNT": 1})
+
+lineitems = list(lineitem_cursor)
+
+# DataFrame for lineitem
+df_lineitem = pd.DataFrame(lineitems)
+
+# Filter lineitem based on part keys and quantity
+df_lineitem["L_PARTKEY"] = df_lineitem["L_PARTKEY"].astype(int)
+lineitem_filter = df_lineitem["L_PARTKEY"].isin(selected_parts["P_PARTKEY"].astype(int))
+
+filtered_lineitem = df_lineitem[lineitem_filter]
+
+# Calculate revenue
+filtered_lineitem["REVENUE"] = filtered_lineitem["L_EXTENDEDPRICE"] * (1 - filtered_lineitem["L_DISCOUNT"])
+
+# Group the result and calculate sum
+result = filtered_lineitem[["REVENUE"]].sum()
+
+# Write result to csv
+result.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script (install.sh):
+
+```bash
+#!/bin/bash
+
+# Update and Install pip and Python dev
+apt-get update
+apt-get install -y python3-pip python3-dev
+
+# Install Python requirements
+pip3 install pymongo
+pip3 install direct_redis
+pip3 install pandas
+```
+
+Please note that for the Redis part, this script approximates a way to construct the DataFrame from the `part` string. The actual implementation can differ based on the string format returned from the `DirectRedis` connection. If the data is serialized using a specific format (e.g., JSON or CSV), the parsing mechanism would need to be updated accordingly.
+created_time, 1701208790
+completion_tokens, 834
+prompt_tokens, 676
+total_tokens, 1510

@@ -1,0 +1,124 @@
+uid, chatcmpl-8Q0KxTwlJ8jxA4pyfo4txA0YZXYmb
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer, orders, lineitem\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Returned Item Reporting Query finds the customers, in terms of their effect on lost revenue betwen 1993-10-01 and 1994-01-01, who have returned parts. The query considers only parts that were ordered in the specified quarter. The query lists the customer's key, name, revenue lost, account balance, nation, address, phone number and comment information. The results are listed in ascending order of revenue lost, customer key, and customer name and descending order of customer account balance. Revenue lost is defined as sum(l_extendedprice*(1-l_discount)) for all qualifying lineitems. \n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 41.93379187583923
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the python code that executes the given query across multiple database platforms:
+
+```python
+# query.py
+import pandas as pd
+import pymongo
+from bson.son import SON
+import direct_redis
+
+def fetch_mongodb_data():
+    client = pymongo.MongoClient('mongodb', 27017)
+    db = client['tpch']
+
+    pipeline = [
+        {"$match": {
+            "O_ORDERDATE": {
+                "$gte": pd.Timestamp("1993-10-01"),
+                "$lt": pd.Timestamp("1994-01-01"),
+            },
+            "L_RETURNFLAG": "R",
+        }},
+        {"$lookup": {
+            "from": "customer",
+            "localField": "O_CUSTKEY",
+            "foreignField": "C_CUSTKEY",
+            "as": "customer_data",
+        }},
+        {"$unwind": "$customer_data"},
+        {"$project": {
+            "C_CUSTKEY": "$customer_data.C_CUSTKEY",
+            "C_NAME": "$customer_data.C_NAME",
+            "C_ADDRESS": "$customer_data.C_ADDRESS",
+            "C_PHONE": "$customer_data.C_PHONE",
+            "C_ACCTBAL": "$customer_data.C_ACCTBAL",
+            "C_COMMENT": "$customer_data.C_COMMENT",
+            "C_NATIONKEY": "$customer_data.C_NATIONKEY",
+            "revenue_lost": {
+                "$multiply": [
+                    {"$subtract": [
+                        1,
+                        "$L_DISCOUNT"
+                    ]},
+                    "$L_EXTENDEDPRICE"
+                ]
+            },
+        }},
+        {"$group": {
+            "_id": {
+                "C_CUSTKEY": "$C_CUSTKEY",
+                "C_NAME": "$C_NAME",
+                "C_ACCTBAL": "$C_ACCTBAL",
+                "C_NATIONKEY": "$C_NATIONKEY",
+                "C_ADDRESS": "$C_ADDRESS",
+                "C_PHONE": "$C_PHONE",
+                "C_COMMENT": "$C_COMMENT",
+            },
+            "total_revenue_lost": {"$sum": "$revenue_lost"},
+        }},
+        {"$sort": SON([
+            ("total_revenue_lost", 1),
+            ("_id.C_CUSTKEY", 1),
+            ("_id.C_NAME", 1),
+            ("_id.C_ACCTBAL", -1),
+        ])}
+    ]
+
+    result = list(db.orders.aggregate(pipeline))
+    mongo_df = pd.DataFrame(result)
+    if not mongo_df.empty:
+        mongo_df = pd.json_normalize(mongo_df['_id'])
+        mongo_df['total_revenue_lost'] = pd.json_normalize(result)['total_revenue_lost']
+    return mongo_df
+
+def fetch_redis_data():
+    dr = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+    nation_df = pd.read_parquet(dr.get('nation'), engine='pyarrow')
+    return nation_df
+
+def merge_data(mongo_data, redis_data):
+    merged_df = pd.merge(
+        mongo_data,
+        redis_data,
+        how='left',
+        left_on='C_NATIONKEY',
+        right_on='N_NATIONKEY'
+    )
+    return merged_df[['C_CUSTKEY', 'C_NAME', 'total_revenue_lost', 'C_ACCTBAL', 'N_NAME', 'C_ADDRESS', 'C_PHONE', 'C_COMMENT']]
+
+def main():
+    mongo_data = fetch_mongodb_data()
+    redis_data = fetch_redis_data()
+    final_data = merge_data(mongo_data, redis_data)
+    final_data.to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    main()
+```
+
+And here is the bash script to install the necessary dependencies:
+
+```bash
+# install_dependencies.sh
+#!/bin/bash
+
+pip install pymongo
+pip install pandas
+pip install direct_redis
+pip install pyarrow
+```
+
+Make sure to give execute permissions to the bash script using `chmod +x install_dependencies.sh` before running it.
+created_time, 1701208515
+completion_tokens, 810
+prompt_tokens, 591
+total_tokens, 1401

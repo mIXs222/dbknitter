@@ -1,0 +1,75 @@
+uid, chatcmpl-8Q0OWcF9fwlxbrV1mNFIERNnXIAOp
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: lineitem\nRelevant table names and their schemas in mongodb:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: part\nRelevant table names and their schemas in redis:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Small-Quantity-Order Revenue Query considers only parts of BRAND#23 and with MED BAG and determines the average lineitem quantity of such parts ordered for all orders (past and pending) in the 7-year database. What would be the average yearly gross (undiscounted) loss in revenue if orders for these parts with a quantity of less than 20% of this average were no longer taken? The output should be the average yearly loss.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 22.060760259628296
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, # Python Code (query.py)
+
+```python
+from pymongo import MongoClient
+import pandas as pd
+import direct_redis
+
+# Connect to MongoDB
+mongo_client = MongoClient('mongodb', 27017)
+mongodb = mongo_client['tpch']
+lineitem_collection = mongodb['lineitem']
+
+# Connect to Redis
+redis_client = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Read from MongoDB
+lineitem_df = pd.DataFrame(list(lineitem_collection.find({'L_RETURNFLAG': {'$in': ['BRAND#23']}, 'L_SHIPINSTRUCT': 'MED BAG'})))
+
+# Read from Redis
+part_str = redis_client.get('part')
+part_df = pd.read_json(part_str, orient='records')
+
+# Filter the relevant parts from Redis
+filtered_parts = part_df[part_df['P_BRAND'] == 'BRAND#23']
+filtered_parts = filtered_parts[filtered_parts['P_CONTAINER'] == 'MED BAG']
+
+# Join the two dataframes
+merged_df = pd.merge(lineitem_df, filtered_parts, left_on='L_PARTKEY', right_on='P_PARTKEY')
+
+# Find average quantity
+average_quantity = merged_df['L_QUANTITY'].mean()
+
+# Compute average yearly gross loss
+df_small_qty_orders = merged_df[merged_df['L_QUANTITY'] < (0.2 * average_quantity)]
+df_small_qty_orders['GROSS_LOSS'] = df_small_qty_orders['L_EXTENDEDPRICE'] * (1 - df_small_qty_orders['L_DISCOUNT'])
+
+# Calculate average yearly loss
+result = df_small_qty_orders['GROSS_LOSS'].sum() / 7  # assuming the 7-year period is correct
+
+# Output the result to CSV file
+result_df = pd.DataFrame([{'average_yearly_loss': result}])
+result_df.to_csv('query_output.csv', index=False)
+```
+
+# Bash Script (install_dependencies.sh)
+
+```bash
+#!/bin/bash
+
+# Update package lists
+sudo apt-get update
+
+# Install Python 3 and pip if they are not installed
+sudo apt-get install -y python3 python3-pip
+
+# Install pymongo, pandas, and redis
+pip3 install pymongo pandas
+
+# Assuming direct_redis is a special package that we have access to.
+# If it is a package available in PyPi, then we would install it using pip with the command below, but this command could be different depending on how direct_redis should be installed.
+pip3 install direct_redis
+```
+created_time, 1701208736
+completion_tokens, 510
+prompt_tokens, 495
+total_tokens, 1005

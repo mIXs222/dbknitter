@@ -1,0 +1,111 @@
+uid, chatcmpl-8PzW83tcAKB8PmyaNK39aAWS1eUnF
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: part\nRelevant table names and their schemas in mysql:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: nation, supplier, orders\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: partsupp, lineitem\nRelevant table names and their schemas in redis:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query determines how much profit is made on a given line of parts, broken out by supplier nation and year., The Product Type Profit Measure Query finds, for each nation and each year, the profit for all parts ordered in that year that contain a specified dim in their names and that were filled by a supplier in that nation. The profit is defined as the sum of [(l_extendedprice*(1-l_discount)) - (ps_supplycost * l_quantity)] for all lineitems describing parts in the specified line. The query lists the nations in ascending alphabetical order and, for each nation, the year and profit in descending order by year (most recent first).\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 35.13602590560913
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Python code (`query_code.py`):
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+from datetime import datetime
+
+
+def get_mysql_connection():
+    return pymysql.connect(
+        host='mysql',
+        user='root',
+        password='my-secret-pw',
+        db='tpch',
+        charset='utf8mb4'
+    )
+
+
+def get_mongodb_connection():
+    client = pymongo.MongoClient('mongodb', 27017)
+    return client['tpch']
+
+
+def get_redis_connection():
+    return DirectRedis(host='redis', port=6379, db=0)
+
+
+def run_query():
+    conn_mysql = get_mysql_connection()
+    conn_mongo = get_mongodb_connection()
+    conn_redis = get_redis_connection()
+
+    part_df = pd.read_sql("SELECT * FROM part WHERE P_NAME LIKE '%dim%'", conn_mysql)
+    nation_df = pd.DataFrame(list(conn_mongo.nation.find()))
+    supplier_df = pd.DataFrame(list(conn_mongo.supplier.find()))
+
+    partsupp_df = conn_redis.get('partsupp')
+    lineitem_df = conn_redis.get('lineitem')
+
+    conn_mysql.close()
+
+    if isinstance(partsupp_df, bytes):
+        partsupp_df = pd.read_msgpack(partsupp_df)
+
+    if isinstance(lineitem_df, bytes):
+        lineitem_df = pd.read_msgpack(lineitem_df)
+
+    # Combining the tables
+    combined_df = pd.merge(lineitem_df, part_df, left_on='L_PARTKEY', right_on='P_PARTKEY')
+    combined_df = pd.merge(combined_df, partsupp_df, left_on=['L_PARTKEY', 'L_SUPPKEY'], right_on=['PS_PARTKEY', 'PS_SUPPKEY'])
+    combined_df = pd.merge(combined_df, supplier_df, left_on='L_SUPPKEY', right_on='S_SUPPKEY')
+    combined_df = pd.merge(combined_df, nation_df, left_on='S_NATIONKEY', right_on='N_NATIONKEY')
+
+    # Calculating profit
+    combined_df['profit'] = (combined_df['L_EXTENDEDPRICE'] * (1 - combined_df['L_DISCOUNT'])) - (combined_df['PS_SUPPLYCOST'] * combined_df['L_QUANTITY'])
+    
+    # Extracting the year from the L_SHIPDATE
+    combined_df['year'] = pd.to_datetime(combined_df['L_SHIPDATE']).dt.year
+
+    # Group by nation and year
+    result = combined_df.groupby(['N_NAME', 'year']).agg({'profit': 'sum'}).reset_index()
+
+    # Sorting the result as per the requirement
+    result = result.sort_values(['N_NAME', 'year'], ascending=[True, False])
+
+    result.to_csv('query_output.csv', index=False)
+
+
+if __name__ == "__main__":
+    run_query()
+```
+
+Bash script (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+# Install Python dependencies for the query_code.py script
+
+# Update package list and install Python3 and pip
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip
+
+# Install required Python packages
+pip3 install pymysql pymongo pandas direct-redis
+
+# Install the additional dependency for Pandas (to handle msgpack for Redis)
+pip3 install msgpack-python
+```
+
+Ensure you have executable permissions for the bash script:
+
+```bash
+chmod +x install_dependencies.sh
+```
+
+Before running the Python code, execute the bash script to install all dependencies.
+created_time, 1701205364
+completion_tokens, 719
+prompt_tokens, 744
+total_tokens, 1463

@@ -1,0 +1,114 @@
+uid, chatcmpl-8PzRuPRl0M7Jx8QdOr8481lUlXXpH
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: part\nRelevant table names and their schemas in mysql:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: nation, supplier\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: region, partsupp\nRelevant table names and their schemas in redis:\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Minimum Cost Supplier Query finds, in EUROPE region, for each part of a BRASS type and size of 15, the supplier who can supply it at minimum supply cost. If several suppliers in that EUROPE offers the BRASS part and size of 15 at the same (minimum) cost, the query lists the suppliers with the order by account balance in descending order, and nation name, supplier name, part key in ascending order. For each supplier, the query lists the supplier's account balance, name and nation; the part's number and manufacturer; the supplier's address, phone number and comment information. Please output the columns in the order of N_NAME, P_MFGR, P_PARTKEY, S_ACCTBAL, S_ADDRESS, S_COMMENT, S_NAME, S_PHONE.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 45.254517793655396
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code to execute the query (1. `execute_query.py`):
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+
+
+def connect_mysql():
+    return pymysql.connect(
+        host='mysql',
+        user='root',
+        password='my-secret-pw',
+        database='tpch'
+    )
+
+
+def query_mysql():
+    connection = connect_mysql()
+    query = """
+        SELECT P_PARTKEY, P_MFGR
+        FROM part
+        WHERE P_TYPE = 'BRASS' AND P_SIZE = 15
+    """
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            result = cursor.fetchall()
+            df = pd.DataFrame(result, columns=['P_PARTKEY', 'P_MFGR'])
+            return df
+    finally:
+        connection.close()
+
+
+def connect_mongodb():
+    client = pymongo.MongoClient("mongodb", 27017)
+    return client['tpch']
+
+
+def query_mongodb():
+    db = connect_mongodb()
+    nation_data = pd.DataFrame(list(db['nation'].find({'N_NAME': 'EUROPE'})))
+    supplier_data = pd.DataFrame(list(db['supplier'].find()))
+    return nation_data, supplier_data
+
+
+def connect_redis():
+    return DirectRedis(host='redis', port=6379, db=0)
+
+
+def query_redis():
+    redis_client = connect_redis()
+    region_data = pd.read_json(redis_client.get('region'))
+    partsupp_data = pd.read_json(redis_client.get('partsupp'))
+    return region_data, partsupp_data
+
+
+def main():
+    part_data = query_mysql()
+    nation_data, supplier_data = query_mongodb()
+    region_data, partsupp_data = query_redis()
+
+    europe_nations = nation_data[nation_data['N_NAME'] == 'EUROPE']
+
+    result = (
+        partsupp_data[partsupp_data['PS_PARTKEY'].isin(part_data['P_PARTKEY'])]
+        .merge(supplier_data, left_on='PS_SUPPKEY', right_on='S_SUPPKEY')
+        .merge(europe_nations, left_on='S_NATIONKEY', right_on='N_NATIONKEY')
+        .merge(part_data, left_on='PS_PARTKEY', right_on='P_PARTKEY')
+        .sort_values(by=['S_ACCTBAL', 'N_NAME', 'S_NAME', 'P_PARTKEY'], ascending=[False, True, True, True])
+    )
+
+    # Select only the first row for each part as it has the minimum cost after sorting
+    result = result.groupby('P_PARTKEY').first().reset_index()
+
+    # Choose columns in the specific order requested and write to CSV
+    result = result[['N_NAME', 'P_MFGR', 'P_PARTKEY', 'S_ACCTBAL', 'S_ADDRESS', 'S_COMMENT', 'S_NAME', 'S_PHONE']]
+    result.to_csv('query_output.csv', index=False)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+And here is the Bash script to install all dependencies (2. `install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Update package list and install python3-pip if not present
+sudo apt-get update
+sudo apt-get install -y python3-pip
+
+# Install required Python packages
+pip3 install pymysql pymongo pandas direct_redis
+
+echo "All dependencies were installed successfully."
+```
+
+Please ensure that this script has execute permissions by running `chmod +x install_dependencies.sh` before executing it. Remember that the provided code assumes default authorization and networking settings for these systems. Adjustment may be needed based on actual configuration and network access rules.
+created_time, 1701205102
+completion_tokens, 750
+prompt_tokens, 666
+total_tokens, 1416

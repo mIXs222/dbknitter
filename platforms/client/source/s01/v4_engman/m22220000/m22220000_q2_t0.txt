@@ -1,0 +1,99 @@
+uid, chatcmpl-8Q06XazBnrxjuRQAU13OTLgzQBcXN
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: partsupp\nRelevant table names and their schemas in mysql:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: nation, region, part, supplier\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Minimum Cost Supplier Query finds, in EUROPE region, for each part of a BRASS type and size of 15, the supplier who can supply it at minimum supply cost. If several suppliers in that EUROPE offers the BRASS part and size of 15 at the same (minimum) cost, the query lists the suppliers with the order by account balance in descending order, and nation name, supplier name, part key in ascending order. For each supplier, the query lists the supplier's account balance, name and nation; the part's number and manufacturer; the supplier's address, phone number and comment information. Please output the columns in the order of N_NAME, P_MFGR, P_PARTKEY, S_ACCTBAL, S_ADDRESS, S_COMMENT, S_NAME, S_PHONE.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 35.71192479133606
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the requested Python code (`query_code.py`):
+
+```python
+import pymysql
+import pandas as pd
+import json
+from direct_redis import DirectRedis
+
+def get_mysql_data():
+    conn = pymysql.connect(host='mysql', user='root', password='my-secret-pw', db='tpch')
+    query = """
+    SELECT partsupp.PS_PARTKEY, partsupp.PS_SUPPKEY, partsupp.PS_SUPPLYCOST
+    FROM partsupp
+    """
+    partsupp_df = pd.read_sql(query, conn)
+    conn.close()
+    return partsupp_df
+
+def get_redis_data():
+    redis_client = DirectRedis(host='redis', port=6379, db=0)    
+    region_df = pd.DataFrame(json.loads(redis_client.get('region')))
+    nation_df = pd.DataFrame(json.loads(redis_client.get('nation')))
+    part_df = pd.DataFrame(json.loads(redis_client.get('part')))
+    supplier_df = pd.DataFrame(json.loads(redis_client.get('supplier')))
+    
+    return region_df, nation_df, part_df, supplier_df
+
+def combine_data(partsupp_df, region_df, nation_df, part_df, supplier_df):
+    # Filter Europe region
+    europe_region = region_df[region_df['R_NAME'] == 'EUROPE']
+    europe_nations = pd.merge(nation_df, europe_region, left_on='N_REGIONKEY', right_on='R_REGIONKEY')
+    
+    # Filter part
+    brass_parts = part_df[(part_df['P_TYPE'] == 'BRASS') & (part_df['P_SIZE'] == 15)]
+    
+    # Join tables
+    combined_df = partsupp_df.merge(supplier_df, left_on='PS_SUPPKEY', right_on='S_SUPPKEY')
+    combined_df = combined_df.merge(brass_parts, left_on='PS_PARTKEY', right_on='P_PARTKEY')
+    combined_df = combined_df.merge(europe_nations, left_on='S_NATIONKEY', right_on='N_NATIONKEY')
+    
+    # Filter minimum cost suppliers
+    combined_df['MIN_PS_SUPPLYCOST'] = combined_df.groupby('P_PARTKEY')['PS_SUPPLYCOST'].transform(min)
+    min_cost_df = combined_df[combined_df['PS_SUPPLYCOST'] == combined_df['MIN_PS_SUPPLYCOST']]
+    
+    return min_cost_df
+
+def sort_and_select(min_cost_df):
+    # Sorting
+    min_cost_df.sort_values(by=['S_ACCTBAL', 'N_NAME', 'S_NAME', 'P_PARTKEY'],
+                            ascending=[False, True, True, True], inplace=True)
+    
+    # Selecting columns
+    result_df = min_cost_df[['N_NAME', 'P_MFGR', 'P_PARTKEY', 'S_ACCTBAL', 'S_ADDRESS', 'S_COMMENT', 'S_NAME', 'S_PHONE']]
+    
+    # Output to CSV
+    result_df.to_csv('query_output.csv', index=False)
+
+if __name__ == "__main__":
+    partsupp_df = get_mysql_data()
+
+    # Get DataFrames from Redis
+    region_df, nation_df, part_df, supplier_df = get_redis_data()
+
+    # Combine DataFrames
+    min_cost_df = combine_data(partsupp_df, region_df, nation_df, part_df, supplier_df)
+
+    # Sort, select columns, and write to CSV
+    sort_and_select(min_cost_df)
+```
+
+Below is the bash script to install all necessary dependencies to run the above Python code (`setup.sh`):
+
+```bash
+#!/bin/bash
+pip install pymysql
+pip install pandas
+pip install redis-direct
+```
+
+Make sure to give the bash script execution permissions:
+
+```bash
+chmod +x setup.sh
+```
+
+Run the bash script `./setup.sh` followed by `python query_code.py` to execute the query.
+created_time, 1701207621
+completion_tokens, 782
+prompt_tokens, 602
+total_tokens, 1384

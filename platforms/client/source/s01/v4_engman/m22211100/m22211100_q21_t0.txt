@@ -1,0 +1,103 @@
+uid, chatcmpl-8Q177j4Xg5Zg4Z3nG4Z9Is2AeNPNl
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: orders, lineitem\nRelevant table names and their schemas in mysql:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: supplier\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Suppliers Who Kept Orders Waiting query identifies suppliers, for a nation which is SAUDI ARABIA, whose product was part of a multi-supplier order with current [status] of 'F' where they were the only supplier who failed to meet the committed delivery date. Multi-Supplier order means the same order has multiple lineitems that has different suppliers. Please output NUMWAIT and S_NAME columne in the order of number of await lineitems in descending order and S_NAME ascending.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 31.752925872802734
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code that you can save as `query_execute.py`:
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Function to get data from MySQL
+def get_mysql_data():
+    conn = pymysql.connect(host='mysql', user='root', password='my-secret-pw', db='tpch')
+    orders_query = "SELECT * FROM orders"
+    lineitem_query = "SELECT * FROM lineitem"
+    orders_df = pd.read_sql(orders_query, conn)
+    lineitem_df = pd.read_sql(lineitem_query, conn)
+    conn.close()
+    return orders_df, lineitem_df
+
+# Function to get data from MongoDB
+def get_mongodb_data():
+    client = pymongo.MongoClient('mongodb', 27017)
+    db = client['tpch']
+    supplier_coll = db['supplier']
+    supplier_df = pd.DataFrame(list(supplier_coll.find()))
+    client.close()
+    return supplier_df
+
+# Function to get data from Redis
+def get_redis_data():
+    client = DirectRedis(host='redis', port=6379, db=0)
+    nation_df = pd.DataFrame(eval(client.get('nation')))
+    client.close()
+    return nation_df
+
+# Get data from all sources
+orders_df, lineitem_df = get_mysql_data()
+supplier_df = get_mongodb_data()
+nation_df = get_redis_data()
+
+# Processing the data
+# Filter SAUDI ARABIA nation and get nation key.
+saudi_arabia_key = nation_df.loc[nation_df['N_NAME'] == 'SAUDI ARABIA', 'N_NATIONKEY'].values[0]
+
+# Filter suppliers by nation key
+suppliers_saudi = supplier_df[supplier_df['S_NATIONKEY'] == saudi_arabia_key]
+
+# Identify multi-supplier orders by counting distinct suppliers
+lineitem_multi_supplier = lineitem_df.groupby('L_ORDERKEY').filter(lambda x: x['L_SUPPKEY'].nunique() > 1)
+
+# Find orders where there was a failure ('F') in commit date
+late_orders = lineitem_multi_supplier[(lineitem_multi_supplier['L_RETURNFLAG'] == 'F') & 
+                                      (lineitem_multi_supplier['L_COMMITDATE'] < lineitem_multi_supplier['L_RECEIPTDATE'])]
+
+# Find the orders where the supplier was the only one being late
+late_order_keys = late_orders['L_ORDERKEY'].unique()
+exclusive_late_orders = lineitem_multi_supplier.groupby('L_ORDERKEY').filter(lambda x: set(x.loc[x['L_RETURNFLAG'] == 'F', 'L_SUPPKEY']) <= set(late_orders['L_SUPPKEY']))
+
+# Count of await lineitems
+await_counts = exclusive_late_orders.groupby('L_SUPPKEY').size().reset_index(name='NUMWAIT')
+await_counts.columns = ['S_SUPPKEY', 'NUMWAIT']
+
+# Merge with supplier names
+result_df = await_counts.merge(suppliers_saudi, left_on='S_SUPPKEY', right_on='S_SUPPKEY')
+result_df = result_df[['NUMWAIT', 'S_NAME']]
+result_df = result_df.sort_values(['NUMWAIT', 'S_NAME'], ascending=[False, True])
+
+# Write to CSV
+result_df.to_csv('query_output.csv', index=False)
+```
+
+And here is the Bash script that you can save as `install_dependencies.sh`:
+
+```bash
+#!/bin/bash
+
+# Update package list
+apt-get update
+
+# Install Python and pip
+apt-get install -y python3 python3-pip
+
+# Install required Python packages
+pip3 install pymysql pymongo pandas direct-redis
+```
+
+Make sure to give execute permissions to the bash script using the following command:
+
+```
+chmod +x install_dependencies.sh
+```
+created_time, 1701211501
+completion_tokens, 778
+prompt_tokens, 644
+total_tokens, 1422

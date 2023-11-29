@@ -1,0 +1,110 @@
+uid, chatcmpl-8Q03PQlbYuEa88KxrYohd1ni03mju
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: part\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Discounted Revenue query finds the gross discounted revenue for all orders for three different types of parts. Parts are selected based on the combination of specific brands, a list of containers, and a range of sizes. The first type has a brand id of 12, a container of 'SM CASE', 'SM BOX' 'SM PACK', or 'SM PKG', quantity which is greater than or eqaul to 1 and less than or equal to 11, size between 1 and 5. The second type has a brand id of 23, a container of 'MED BAG', 'MED BOX', 'MED PKG', or 'MED PACK', quantity which is greater than or eqaul to 10 and less than or equal to 20, size between 1 and 10. The third type has a brand id of 34, a container of 'LG CASE', 'LG BOX', 'LG PACK', or 'LG PKG', quantity which is greater than or eqaul to 20 and less than or equal to 30, size between 1 and 15. All should be shipped by air whose SHIPMODE is either 'AIR' or 'AIR REG' and delivered in person. The result only has one column, which is SUM(L_EXTENDEDPRICE* (1 - L_DISCOUNT)) AS REVENUE.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 41.88942503929138
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (saved as `query_executor.py`):
+
+```python
+import pymongo
+import pandas as pd
+
+# Database Connection Information
+mongodb_connection_info = {
+    'hostname': 'mongodb',
+    'port': 27017,
+    'db_name': 'tpch'
+}
+
+# MongoDB Connection
+client = pymongo.MongoClient(
+    host=mongodb_connection_info['hostname'],
+    port=mongodb_connection_info['port']
+)
+
+db = client[mongodb_connection_info['db_name']]
+
+# Fetching MongoDB data for 'part'
+part_collection = db['part']
+parts_data_from_mongodb = pd.DataFrame(list(part_collection.find()))
+
+# Defining part types for selection
+part_types = {
+    1: {"brand_id": "12", "containers": ['SM CASE', 'SM BOX', 'SM PACK', 'SM PKG'], "size": range(1, 6)},
+    2: {"brand_id": "23", "containers": ['MED BAG', 'MED BOX', 'MED PKG', 'MED PACK'], "size": range(1, 11)},
+    3: {"brand_id": "34", "containers": ['LG CASE', 'LG BOX', 'LG PACK', 'LG PKG'], "size": range(1, 16)}
+}
+
+# Filtering parts from MongoDB based on part types
+part_keys = []
+for p_type, p_info in part_types.items():
+    filtered_parts = parts_data_from_mongodb[
+        (parts_data_from_mongodb['P_BRAND'].apply(lambda x: x.endswith(p_info['brand_id'])) &
+        (parts_data_from_mongodb['P_CONTAINER'].isin(p_info['containers'])) &
+        (parts_data_from_mongodb['P_SIZE'].between(min(p_info['size']), max(p_info['size']), inclusive="both")))
+    ]
+    part_keys.extend(filtered_parts['P_PARTKEY'].values.tolist())
+
+# Connect to Redis
+from direct_redis import DirectRedis
+redis_connection_info = {
+    'hostname': 'redis',
+    'port': 6379,
+    'db_name': 0
+}
+
+r = DirectRedis(
+    host=redis_connection_info['hostname'], 
+    port=redis_connection_info['port'], 
+    db=redis_connection_info['db_name']
+)
+
+# Fetch Redis data for 'lineitem'
+lineitem_data_from_redis = r.get('lineitem')
+
+# If the data is a string representing a dataframe, we turn it back into a dataframe
+if isinstance(lineitem_data_from_redis, bytes):
+    lineitem_data_from_redis = pd.read_msgpack(lineitem_data_from_redis)
+
+# Filtering lineitems based on quantity, shipmode, and part keys
+filtered_lineitems = lineitem_data_from_redis[
+    (lineitem_data_from_redis['L_SHIPMODE'].isin(['AIR', 'AIR REG'])) &
+    (lineitem_data_from_redis['L_PARTKEY'].isin(part_keys))
+]
+
+# Calculate discounted revenue and sum
+filtered_lineitems['REVENUE'] = filtered_lineitems['L_EXTENDEDPRICE'] * (1 - filtered_lineitems['L_DISCOUNT'])
+total_revenue = filtered_lineitems['REVENUE'].sum()
+
+# Save the result to a CSV file
+result_df = pd.DataFrame({'REVENUE': [total_revenue]})
+result_df.to_csv('query_output.csv', index=False)
+```
+
+Now, here's the Bash script (saved as `setup_dependencies.sh`) to install all dependencies:
+
+```bash
+#!/bin/bash
+
+# Update packages list and Upgrade system
+apt-get update -y && apt-get upgrade -y
+
+# MongoDB dependencies
+apt-get install -y libssl-dev
+pip install pymongo
+
+# Redis dependencies
+pip install redis
+pip install direct_redis
+pip install pandas
+```
+
+Please ensure you have execution permissions on the `.sh` script by running `chmod +x setup_dependencies.sh` before executing it. Also, make sure to run the Bash script as a user with proper permissions to install the dependencies.
+created_time, 1701207427
+completion_tokens, 814
+prompt_tokens, 676
+total_tokens, 1490

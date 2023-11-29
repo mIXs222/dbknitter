@@ -1,0 +1,108 @@
+uid, chatcmpl-8Q1ocR23vo9kQ1c9i4cgsYg6vctc9
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: nation, part, supplier, partsupp, lineitem\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 39.529824018478394
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (`query_code.py`) to execute the given query on MongoDB databases:
+
+```python
+from pymongo import MongoClient
+import csv
+from datetime import datetime
+
+# Connect to the MongoDB server
+client = MongoClient('mongodb', 27017)
+db = client['tpch']
+
+# Define the query parameters
+start_date = datetime(1994, 1, 1)
+end_date = datetime(1995, 1, 1)
+nation_name = "CANADA"
+part_pattern = "forest"
+excess_threshold = 0.5
+
+# Fetch relevant Nation Key
+nation = db.nation.find_one({"N_NAME": nation_name}, {"N_NATIONKEY": 1})
+nation_key = nation['N_NATIONKEY'] if nation else None
+
+# Find relevant suppliers based on the nation key
+suppliers = list(db.supplier.find({"S_NATIONKEY": nation_key}, {"S_SUPPKEY": 1}))
+
+# Dictionary to store suppliers and their corresponding total shipped quantities
+suppliers_shipped_qty = {}
+
+# Process each supplier to find relevant parts and quantities shipped
+for supplier in suppliers:
+    suppkey = supplier['S_SUPPKEY']
+    part_supplies = db.partsupp.find({"PS_SUPPKEY": suppkey}, {"PS_PARTKEY": 1, "PS_SUPPKEY": 1})
+    
+    # Find all lineitems for this supplier within the date range
+    for part_supply in part_supplies:
+        partkey = part_supply['PS_PARTKEY']
+        lineitems = db.lineitem.find({
+            "L_SUPPKEY": suppkey,
+            "L_PARTKEY": partkey,
+            "L_SHIPDATE": {"$gte": start_date, "$lt": end_date},
+            "L_RETURNFLAG": {"$ne": "R"}  # Exclude returned items
+        })
+        
+        # Calculate the total quantity shipped for each part
+        total_qty = sum(item['L_QUANTITY'] for item in lineitems)
+        if suppkey in suppliers_shipped_qty:
+            suppliers_shipped_qty[suppkey] += total_qty
+        else:
+            suppliers_shipped_qty[suppkey] = total_qty
+
+# Fetch parts that match the naming convention
+matching_parts = db.part.find({"P_NAME": {"$regex": part_pattern}}, {"P_PARTKEY": 1})
+matching_part_keys = [part['P_PARTKEY'] for part in matching_parts]
+
+# Find suppliers that exceed the excess threshold
+excess_suppliers = {}
+for suppkey, total_qty in suppliers_shipped_qty.items():
+    parts = db.partsupp.find({"PS_SUPPKEY": suppkey, "PS_PARTKEY": {"$in": matching_part_keys}})
+    matched_qty = sum(part['PS_AVAILQTY'] for part in parts)
+    
+    # Check if the supplier's matched quantity exceeds the defined threshold
+    if matched_qty > total_qty * excess_threshold:
+        excess_suppliers[suppkey] = {"total_quantity": total_qty, "excess_quantity": matched_qty}
+
+# Write query results to a CSV file
+with open('query_output.csv', 'w', newline='') as csvfile:
+    fieldnames = ['supplier_key', 'total_quantity', 'excess_quantity']
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    writer.writeheader()
+    for suppkey, quantities in excess_suppliers.items():
+        writer.writerow({'supplier_key': suppkey, **quantities})
+
+client.close()
+```
+
+And here is the bash script (`install_dependencies.sh`) to install all dependencies to run the Python code:
+
+```bash
+#!/bin/bash
+
+# Update package lists
+sudo apt-get update
+
+# Install Python 3 and pip if they are not already installed
+sudo apt-get install -y python3 python3-pip
+
+# Install pymongo using pip
+pip3 install pymongo
+```
+
+Make sure you grant execution permission to the bash script before running it:
+
+```bash
+chmod +x install_dependencies.sh
+```
+created_time, 1701214198
+completion_tokens, 820
+prompt_tokens, 476
+total_tokens, 1296

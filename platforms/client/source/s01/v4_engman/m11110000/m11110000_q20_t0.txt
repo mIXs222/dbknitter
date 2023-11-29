@@ -1,0 +1,101 @@
+uid, chatcmpl-8PzrsssPpgxc4fwj8YnLDYxXW67kU
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: partsupp, lineitem\nRelevant table names and their schemas in mysql:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: nation, part, supplier\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 29.093451976776123
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code for your requirement (query.py):
+
+```python
+import pymysql
+import pymongo
+import csv
+import datetime
+
+# MySQL connection
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    database='tpch'
+)
+
+mysql_cursor = mysql_conn.cursor()
+
+# MongoDB connection
+mongodb_client = pymongo.MongoClient('mongodb', 27017)
+mongodb_db = mongodb_client['tpch']
+nation_collection = mongodb_db['nation']
+supplier_collection = mongodb_db['supplier']
+
+# Get the nationkey for CANADA
+canada_nationkey = nation_collection.find_one({'N_NAME': 'CANADA'})['N_NATIONKEY']
+
+# Get relevant suppliers for CANADA
+suppliers_for_canada = supplier_collection.find({'S_NATIONKEY': canada_nationkey}, {'S_SUPPKEY': 1})
+
+supplier_keys = [supplier['S_SUPPKEY'] for supplier in suppliers_for_canada]
+
+# MySQL Query
+mysql_query = """
+SELECT 
+    l.L_SUPPKEY,
+    SUM(l.L_QUANTITY) AS total_quantity
+FROM 
+    lineitem l
+WHERE 
+    l.L_SUPPKEY IN (%s) AND 
+    l.L_SHIPDATE >= '1994-01-01' AND 
+    l.L_SHIPDATE < '1995-01-01'
+GROUP BY 
+    l.L_SUPPKEY
+HAVING 
+    SUM(l.L_QUANTITY) > (
+        SELECT 
+            0.5 * SUM(ps.PS_AVAILQTY)
+        FROM 
+            partsupp ps
+        WHERE 
+            ps.PS_SUPPKEY = l.L_SUPPKEY
+    )
+""" % ','.join(str(s) for s in supplier_keys)
+
+mysql_cursor.execute(mysql_query)
+suppliers_with_excess = mysql_cursor.fetchall()
+
+# Write to file
+with open('query_output.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(['SUPPKEY', 'TOTAL_QUANTITY'])
+    for row in suppliers_with_excess:
+        writer.writerow(row)
+
+# Close connections
+mysql_cursor.close()
+mysql_conn.close()
+mongodb_client.close()
+```
+
+And here's the Bash script to install all dependencies (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+# Bash script to install dependencies for the Python script
+
+sudo apt update
+sudo apt install -y python3 python3-pip
+pip3 install pymysql pymongo
+```
+
+Remember to give execute permissions to your bash script before running it with the following command:
+
+```bash
+chmod +x install_dependencies.sh
+```
+created_time, 1701206712
+completion_tokens, 535
+prompt_tokens, 560
+total_tokens, 1095

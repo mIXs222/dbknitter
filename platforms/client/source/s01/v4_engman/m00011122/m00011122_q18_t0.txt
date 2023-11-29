@@ -1,0 +1,108 @@
+uid, chatcmpl-8Q0CNUUXMf3pvNC7On9EbM9lHbSQk
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: orders, lineitem\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Large Volume Customer Query finds a list of customers with their large orders. All the considered orders should have total quantity of larger than 300. The query lists the customer name, customer key, the order key, date and total price and the quantity for the order. And the result is order by O_TOTALPRICE in descending and O_ORDERDATE in ascending.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 38.090210914611816
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`execute_query.py`):
+
+```python
+import pymongo
+import direct_redis
+import pandas as pd
+
+# Function to get data from MongoDB
+def get_mongodb_data(host, port, db_name):
+    mongo_client = pymongo.MongoClient(host=host, port=port)
+    db = mongo_client[db_name]
+    customer_data = pd.DataFrame(list(db.customer.find({}, {
+        '_id': 0,
+        'C_CUSTKEY': 1,
+        'C_NAME': 1
+    })))
+    mongo_client.close()
+    return customer_data
+
+# Function to get and transform Redis data
+def get_redis_data(host, port, db_name):
+
+    r = direct_redis.DirectRedis(host=host, port=port)
+    orders_str = r.get('orders')
+    lineitem_str = r.get('lineitem')
+
+    # Convert to DataFrame 
+    orders_df = pd.read_json(orders_str)
+    lineitem_df = pd.read_json(lineitem_str)
+
+    # Aggregating lineitem data to get the total quantity per order.    
+    lineitem_agg = lineitem_df.groupby('L_ORDERKEY')['L_QUANTITY'].sum().reset_index()
+    lineitem_agg = lineitem_agg[lineitem_agg['L_QUANTITY'] > 300] # Only consider large orders
+    
+    orders_large = orders_df.merge(lineitem_agg, left_on='O_ORDERKEY', right_on='L_ORDERKEY')
+    
+    # including necessary fields and renaming the columns to match with SQL query columns
+    orders_large = orders_large[['O_ORDERKEY', 'O_CUSTKEY', 'O_TOTALPRICE', 'O_ORDERDATE', 'L_QUANTITY']]
+    orders_large.columns = ['OrderKey', 'CustomerKey', 'TotalPrice', 'OrderDate', 'TotalQuantity']
+    
+    return orders_large
+
+# Gathering data
+mongodb_data = get_mongodb_data(host='mongodb', port=27017, db_name='tpch')
+redis_data = get_redis_data(host='redis', port=6379, db_name='0')
+
+# Merging data from different sources
+merged_data = pd.merge(mongodb_data, redis_data, how='inner', left_on='C_CUSTKEY', right_on='CustomerKey')
+merged_data = merged_data[['C_NAME', 'C_CUSTKEY', 'OrderKey', 'OrderDate', 'TotalPrice', 'TotalQuantity']]
+
+# Sort the data as per the SQL Query requirement
+sorted_data = merged_data.sort_values(by=['TotalPrice', 'OrderDate'], ascending=[False, True])
+
+# Write the result to CSV file
+sorted_data.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Update package list and upgrade
+apt-get update
+
+# Install Python and pip (In case they are not installed)
+apt-get install -y python3 python3-pip
+
+# Install Python MongoDB client
+pip3 install pymongo
+
+# Install direct_redis (Assuming it's available on PyPi; if not, should be obtained in the way provided by its source)
+pip3 install direct_redis
+
+# Install pandas
+pip3 install pandas
+```
+
+To execute the python script, make sure to give execute permission to the bash script:
+
+```bash
+chmod +x install_dependencies.sh
+```
+
+Then, run the bash script to install all dependencies:
+
+```bash
+./install_dependencies.sh
+```
+
+Afterwards, run the Python script:
+
+```bash
+python3 execute_query.py
+```
+created_time, 1701207983
+completion_tokens, 722
+prompt_tokens, 518
+total_tokens, 1240

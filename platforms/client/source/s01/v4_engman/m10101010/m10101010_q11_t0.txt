@@ -1,0 +1,110 @@
+uid, chatcmpl-8Q0sNaSCEn4DqznqtcZmcxfmcQCVG
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: supplier\nRelevant table names and their schemas in mysql:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: nation, partsupp\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds the most important subset of suppliers' stock in GERMANY., The Important Stock Identification Query finds, from scanning the available stock of suppliers in GERMANY, all the parts that represent a significant percentage (larger then 0.0001) of the total value of all available parts. The query displays the part number and the value of those parts in descending order of value.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 27.541656732559204
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (query_code.py):
+```python
+import pymysql
+import pymongo
+import csv
+
+# Function to connect to MySQL
+def connect_mysql(hostname, username, password, dbname):
+    connection = pymysql.connect(host=hostname,
+                                 user=username,
+                                 password=password,
+                                 database=dbname,
+                                 cursorclass=pymysql.cursors.Cursor)
+    return connection
+
+# Function to connect to MongoDB
+def connect_mongodb(hostname, database, port=27017):
+    client = pymongo.MongoClient(host=hostname, port=port)
+    return client[database]
+
+# Execute query in MySQL
+def get_suppliers_from_germany(connection):
+    with connection.cursor() as cursor:
+        query = """
+        SELECT S_SUPPKEY, S_NAME
+        FROM supplier
+        WHERE S_NATIONKEY = (SELECT N_NATIONKEY FROM nation WHERE N_NAME = 'GERMANY')
+        """
+        cursor.execute(query)
+        return cursor.fetchall()
+
+# Get part supplies from MongoDB
+def get_partsupplies(mongo_db):
+    partsupp_data = mongo_db.partsupp.find()
+    return {(item['PS_SUPPKEY'], item['PS_PARTKEY']): item for item in partsupp_data}
+
+# Merge data from both databases
+def merge_data(suppliers, partsupplies):
+    significant_parts = {}
+    total_value = 0
+
+    # Calculate totals
+    for (suppkey, partkey), partsupp in partsupplies.items():
+        total_value += partsupp['PS_AVAILQTY'] * partsupp['PS_SUPPLYCOST']
+
+    # Find important stock
+    for (suppkey, partkey), partsupp in partsupplies.items():
+        if suppkey in suppliers:
+            value = partsupp['PS_AVAILQTY'] * partsupp['PS_SUPPLYCOST']
+            if value / total_value > 0.0001:
+                significant_parts[partkey] = significant_parts.get(partkey, 0) + value
+
+    return sorted(significant_parts.items(), key=lambda item: item[1], reverse=True)
+
+# Main function to run the logic
+def main():
+    # Connect to databases
+    mysql_conn = connect_mysql('mysql', 'root', 'my-secret-pw', 'tpch')
+    mongo_db = connect_mongodb('mongodb', 'tpch')
+
+    try:
+        # Get data from both databases
+        suppliers = {key: name for key, name in get_suppliers_from_germany(mysql_conn)}
+        partsupplies = get_partsupplies(mongo_db)
+
+        # Merge data and process
+        significant_parts = merge_data(suppliers, partsupplies)
+
+        # Write results to CSV
+        with open('query_output.csv', 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['PARTKEY', 'VALUE'])
+
+            for partkey, value in significant_parts:
+                writer.writerow([partkey, value])
+                
+    finally:
+        mysql_conn.close()
+
+# Run the main function
+if __name__ == "__main__":
+    main()
+```
+
+2. Bash script (install_dependencies.sh):
+```bash
+#!/bin/bash
+
+# Update package lists
+apt-get update
+
+# Install pip if not already installed
+apt-get install -y python3-pip
+
+# Install Python libraries required
+pip3 install pymysql pymongo
+```
+created_time, 1701210587
+completion_tokens, 686
+prompt_tokens, 453
+total_tokens, 1139

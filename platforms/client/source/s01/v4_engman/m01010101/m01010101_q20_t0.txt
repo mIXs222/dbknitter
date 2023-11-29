@@ -1,0 +1,103 @@
+uid, chatcmpl-8Q0bE08szNl2Ro7GpB2RIdTqKl3hf
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation, part, partsupp\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: supplier, lineitem\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 58.22290587425232
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code (`query_execution.py`):
+
+```python
+import pymysql
+import pymongo
+import csv
+from datetime import datetime
+
+# MySQL connection setup
+mysql_conn = pymysql.connect(host='mysql', user='root', password='my-secret-pw', db='tpch')
+mysql_cursor = mysql_conn.cursor()
+
+# MongoDB connection setup
+mongo_client = pymongo.MongoClient('mongodb', 27017)
+mongo_db = mongo_client['tpch']
+
+# Fetch nation key for CANADA from MySQL
+mysql_cursor.execute("SELECT N_NATIONKEY FROM nation WHERE N_NAME = 'CANADA'")
+nation_keys = [row[0] for row in mysql_cursor.fetchall()]
+
+# Fetch part keys for parts like the forest part from MySQL
+mysql_cursor.execute("SELECT P_PARTKEY FROM part WHERE P_NAME LIKE '%forest%'")
+part_keys = [row[0] for row in mysql_cursor.fetchall()]
+
+# Fetch the supplier keys, parts they supplied, and aggregate quantities shipped within the date from MongoDB
+supplier_info = mongo_db['lineitem'].aggregate([
+    {
+        '$match': {
+            'L_SHIPDATE': {
+                '$gte': datetime(1994, 1, 1),
+                '$lt': datetime(1995, 1, 1)
+            },
+            'L_PARTKEY': {'$in': part_keys},
+            'L_SUPPKEY': {'$exists': True}
+        }
+    },
+    {
+        '$group': {
+            '_id': {'L_SUPPKEY': '$L_SUPPKEY', 'L_PARTKEY': '$L_PARTKEY'},
+            'total_quantity': {'$sum': '$L_QUANTITY'}
+        }
+    }
+])
+
+supplier_thresholds = {}
+for info in supplier_info:
+  suppkey, partkey = info['_id']['L_SUPPKEY'], info['_id']['L_PARTKEY']
+  if suppkey in supplier_thresholds:
+    supplier_thresholds[suppkey][partkey] = info['total_quantity']
+  else:
+    supplier_thresholds[suppkey] = {partkey: info['total_quantity']}
+
+# Fetch supplier details from MongoDB
+suppliers = mongo_db['supplier'].find({'S_NATIONKEY': {'$in': nation_keys}})
+
+# Determine the suppliers with an excess of parts
+excess_suppliers = {}
+for supplier in suppliers:
+  s_suppkey = supplier['S_SUPPKEY']
+  if s_suppkey in supplier_thresholds:
+    excess_parts_count = sum(1 for qty in supplier_thresholds[s_suppkey].values() if qty > 50)
+    if excess_parts_count > (len(part_keys) / 2):
+      excess_suppliers[s_suppkey] = supplier['S_NAME']
+
+# Write query results to a CSV file
+with open('query_output.csv', mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(['S_SUPPKEY', 'S_NAME'])
+    for suppkey, name in excess_suppliers.items():
+        writer.writerow([suppkey, name])
+
+# Close the connections
+mysql_conn.close()
+mongo_client.close()
+```
+
+And here's the bash script to install all dependencies (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Update the package lists
+apt-get update
+
+# Install Python and Pip (if not already installed)
+apt-get install -y python3 python3-pip
+
+# Install the required Python libraries
+pip3 install pymysql pymongo
+```
+created_time, 1701209524
+completion_tokens, 705
+prompt_tokens, 560
+total_tokens, 1265

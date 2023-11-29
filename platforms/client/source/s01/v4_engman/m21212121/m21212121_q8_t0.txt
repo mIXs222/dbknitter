@@ -1,0 +1,95 @@
+uid, chatcmpl-8Q26mlaOxRQWMjXqxXkzEN7M8eASY
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: region, supplier, customer, lineitem\nRelevant table names and their schemas in mongodb:\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, part, orders\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query determines how the market share of INDIA within ASIA has changed over two years of the product type SMALL PLATED COPPER., The market share for INDIA within ASIA is defined as the fraction of the revenue, the sum of [l_extendedprice * (1-l_discount)], from the products of SMALL PLATED COPPER in ASIA that was supplied by suppliers from INDIA. The query determines this for the years 1995 and 1996 presented in this order. Please output the columns in the order of order year and market share.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 31.79566502571106
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (`query.py`) that executes the given query across the different platforms:
+
+```python
+import pandas as pd
+import pymongo
+from direct_redis import DirectRedis
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient("mongodb", 27017)
+mongo_db = mongo_client['tpch']
+# Load data
+region = pd.DataFrame(list(mongo_db.region.find()))
+supplier = pd.DataFrame(list(mongo_db.supplier.find()))
+customer = pd.DataFrame(list(mongo_db.customer.find()))
+lineitem = pd.DataFrame(list(mongo_db.lineitem.find()))
+
+# Connect to Redis
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+# Load data
+nation = pd.read_json(redis_client.get('nation'))
+part = pd.read_json(redis_client.get('part'))
+orders = pd.read_json(redis_client.get('orders'))
+
+# Join operations and calculations
+asia_nations = nation[nation['N_REGIONKEY'] == region[region['R_NAME'] == 'ASIA']['R_REGIONKEY'].iloc[0]]
+india_nations = asia_nations[asia_nations['N_NAME'] == 'INDIA']['N_NATIONKEY'].values
+
+supplier_india = supplier[supplier['S_NATIONKEY'].isin(india_nations)]
+supplier_customer = supplier_india.set_index('S_SUPPKEY').join(customer.set_index('C_CUSTKEY'))
+supplier_customer_orders = supplier_customer.set_index('C_CUSTKEY').join(orders.set_index('O_CUSTKEY'))
+
+small_plated_copper = part[part['P_TYPE'] == 'SMALL PLATED COPPER']
+item_order_part = lineitem.set_index('L_PARTKEY').join(small_plated_copper.set_index('P_PARTKEY'))
+
+final_join = supplier_customer_orders.join(item_order_part, lsuffix='_orders', rsuffix='_lineitems')
+
+# Filter the orders which are made in 1995 or 1996
+final_join = final_join[(final_join['O_ORDERDATE'].dt.year == 1995) | (final_join['O_ORDERDATE'].dt.year == 1996)]
+
+# Calculate revenue
+final_join['REVENUE'] = final_join['L_EXTENDEDPRICE'] * (1 - final_join['L_DISCOUNT'])
+
+# Calculate total revenue per year
+total_revenue = final_join.groupby(final_join['O_ORDERDATE'].dt.year)['REVENUE'].sum().rename('TOTAL_REVENUE')
+
+# Calculate India's revenue per year
+india_revenue = final_join[final_join['S_NATIONKEY'].isin(india_nations)].groupby(
+    final_join['O_ORDERDATE'].dt.year)['REVENUE'].sum().rename('INDIA_REVENUE')
+
+# Merge datasets and calculate the market share
+result = pd.concat([india_revenue, total_revenue], axis=1)
+result['MARKET_SHARE'] = result['INDIA_REVENUE'] / result['TOTAL_REVENUE']
+
+# Drop unnecessary columns
+output = result.drop(columns=['INDIA_REVENUE', 'TOTAL_REVENUE'])
+output.reset_index(inplace=True)
+output.columns = ['ORDER_YEAR', 'MARKET_SHARE']
+
+# Output to csv
+output.to_csv('query_output.csv', index=False)
+```
+
+For the bash script (`install_dependencies.sh`) to install all dependencies:
+
+```bash
+#!/bin/bash
+
+# Update package list
+sudo apt-get update
+
+# Install MongoDB
+sudo apt-get install -y mongodb
+
+# Install Redis
+sudo apt-get install -y redis-server
+
+# Install Python3 and pip
+sudo apt-get install -y python3 python3-pip
+
+# Install Python dependencies
+pip3 install pandas pymongo redis direct-redis
+```
+created_time, 1701215324
+completion_tokens, 759
+prompt_tokens, 664
+total_tokens, 1423

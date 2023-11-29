@@ -1,0 +1,74 @@
+uid, chatcmpl-8PzzmVmHlg2d1XZTzgr6Q8xw24es2
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: orders, lineitem\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query determines whether selecting less expensive modes of shipping is negatively affecting the critical-priority orders by causing more parts to be received by customers after the committed date. We only consider line items that are actually received by customers between 1994-01-01 and 1995-01-01 which is the receipt date, the l_receiptdate should exceeds the l_commitdate, the ship mode should be in 'mail' or 'ship'. Also, only lineitems that were actually shipped before the l_commitdate are considered. The output results are grouped and ordered by l_shipmode in ascending order. For each group, we also count the number of lineitems of high order priority (those with priority URGENT or HIGH), and the number of lineitems of low order priority  (with a priority other than URGENT or HIGH).\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 28.89523196220398
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Python Code (query.py):
+
+```python
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Connect to Redis database
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# Fetch the data from Redis
+orders_df = pd.DataFrame(redis_client.get('orders'))
+lineitem_df = pd.DataFrame(redis_client.get('lineitem'))
+
+# Convert columns to appropriate data types
+orders_df['O_ORDERDATE'] = pd.to_datetime(orders_df['O_ORDERDATE'])
+lineitem_df['L_RECEIPTDATE'] = pd.to_datetime(lineitem_df['L_RECEIPTDATE'])
+lineitem_df['L_COMMITDATE'] = pd.to_datetime(lineitem_df['L_COMMITDATE'])
+lineitem_df['L_SHIPDATE'] = pd.to_datetime(lineitem_df['L_SHIPDATE'])
+
+# Join the orders and lineitem tables on the order key
+merged_df = pd.merge(orders_df, lineitem_df, left_on='O_ORDERKEY', right_on='L_ORDERKEY')
+
+# Filter based on the conditions provided in the pseudo-query
+filtered_df = merged_df[
+    (merged_df['L_RECEIPTDATE'] >= pd.Timestamp('1994-01-01')) &
+    (merged_df['L_RECEIPTDATE'] <= pd.Timestamp('1995-01-01')) &
+    (merged_df['L_SHIPMODE'].isin(['MAIL', 'SHIP'])) &
+    (merged_df['L_RECEIPTDATE'] > merged_df['L_COMMITDATE']) &
+    (merged_df['L_SHIPDATE'] < merged_df['L_COMMITDATE'])
+]
+
+# Create a flag to identify high and low priority orders
+filtered_df['PRIORITY'] = filtered_df['O_ORDERPRIORITY'].apply(lambda x: 'HIGH' if x in ['URGENT', 'HIGH'] else 'LOW')
+
+# Group by the ship mode and calculate the desired counts
+result_df = filtered_df.groupby('L_SHIPMODE')['PRIORITY'].value_counts().unstack().fillna(0)
+result_df.columns = ['LOW_PRIORITY_COUNT', 'HIGH_PRIORITY_COUNT']
+
+# Sort the result by the ship mode
+result_df = result_df.sort_index()
+
+# Write the result to the output CSV file
+result_df.to_csv('query_output.csv')
+```
+
+Bash Script (install.sh):
+
+```bash
+#!/bin/bash
+# Bash script to install dependencies for the Python code
+
+# Update system repositories and packages
+sudo apt-get update
+sudo apt-get upgrade -y
+
+# Install Python 3 and Python package manager (pip)
+sudo apt-get install python3 python3-pip -y
+
+# Install required Python packages
+pip3 install pandas redis direct_redis
+```
+created_time, 1701207202
+completion_tokens, 552
+prompt_tokens, 514
+total_tokens, 1066

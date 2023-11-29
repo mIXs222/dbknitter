@@ -1,0 +1,107 @@
+uid, chatcmpl-8Q0eJMGPhQ7LHcEcXufk9QG8uPrk7
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: orders\nRelevant table names and their schemas in mysql:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: customer, lineitem\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Shipping Priority Query retrieves the shipping priority and potential revenue, defined as the sum of l_extendedprice * (1-l_discount), of the orders that had been ordered before 1995-03-05 but be shipped after 1995-03-15 and where market segment is BUILDING. Orders are listed in decreasing order of revenue. Please output the columns in the order of O_ORDERKEY, REVENUE, O_ORDERDATE, and O_SHIPPRIORITY.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 30.239739894866943
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the requested Python code (`query.py`):
+
+```python
+import pymysql
+import pandas as pd
+from direct_redis import DirectRedis
+
+def execute_query():
+    # MySQL connection
+    mysql_conn = pymysql.connect(
+        host='mysql',
+        user='root',
+        password='my-secret-pw',
+        database='tpch'
+    )
+
+    # Redis connection
+    redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+    try:
+        # Fetch orders data from MySQL
+        with mysql_conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT O_ORDERKEY, O_ORDERDATE, O_SHIPPRIORITY
+                FROM orders
+                WHERE O_ORDERDATE < '1995-03-05'
+            """)
+            orders = pd.DataFrame(cursor.fetchall(), columns=['O_ORDERKEY', 'O_ORDERDATE', 'O_SHIPPRIORITY'])
+
+        # Fetch lineitem data from Redis
+        lineitem_df = pd.read_json(redis_conn.get('lineitem'))
+
+        # Calculate revenue
+        lineitem_df['REVENUE'] = lineitem_df['L_EXTENDEDPRICE'] * (1 - lineitem_df['L_DISCOUNT'])
+
+        # Merge with orders dataframe on the O_ORDERKEY
+        result = pd.merge(
+            orders,
+            lineitem_df,
+            left_on='O_ORDERKEY',
+            right_on='L_ORDERKEY',
+            how='inner'
+        )
+        
+        # Filter the result with the given conditions
+        result = result[
+            (result['L_SHIPDATE'] > '1995-03-15') &
+            (result['REVENUE'] > 0)
+        ]
+
+        # Fetch customer data from Redis
+        customer_df = pd.read_json(redis_conn.get('customer'))
+        
+        # Filter customers from 'BUILDING' market segment
+        customer_building = customer_df[customer_df['C_MKTSEGMENT'] == 'BUILDING']
+
+        # Merge with result data on C_CUSTKEY
+        final_result = pd.merge(
+            result,
+            customer_building,
+            left_on='O_CUSTKEY',
+            right_on='C_CUSTKEY',
+            how='inner'
+        )
+
+        # Select and sort the desired output
+        final_output = final_result[['O_ORDERKEY', 'REVENUE', 'O_ORDERDATE', 'O_SHIPPRIORITY']]
+        final_output = final_output.sort_values(by='REVENUE', ascending=False)
+
+        # Write result to csv
+        final_output.to_csv('query_output.csv', index=False)
+
+    finally:
+        mysql_conn.close()
+        redis_conn.connection_pool.disconnect()
+
+if __name__ == '__main__':
+    execute_query()
+```
+
+And here's the Bash script to install the dependencies (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Update package lists
+apt-get update
+
+# Install pip
+apt-get install -y python3-pip
+
+# Install Python package dependencies with pip
+pip3 install pymysql pandas direct-redis
+```
+created_time, 1701209715
+completion_tokens, 609
+prompt_tokens, 561
+total_tokens, 1170

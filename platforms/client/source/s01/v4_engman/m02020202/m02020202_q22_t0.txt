@@ -1,0 +1,89 @@
+uid, chatcmpl-8Q0nIO40NW4is0aQeYKtSseANYl9v
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: orders\nRelevant table names and their schemas in mysql:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: customer\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Global Sales Opportunity Query identifies geographies where there are customers who may be likely to make a purchase. This query counts how many customers within a specific range of country codes have not placed orders for 7 years whose account balance is greater than the average account balance of people whose account balance is larger than 0.00 in those countries. It also reflects the magnitude of that balance. Country code is defined as the first two characters of c_phone which should be one of '20', '40', '22', '30', '39', '42', or '21'. Please output the columns in the order of CNTRYCODE, number of such customers, and total account balance of those customers. It should be by in the order of CNTRYCODE ascending\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 24.722434759140015
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. The Python code (query.py):
+
+```python
+import pymysql
+import direct_redis
+import pandas as pd
+from datetime import datetime, timedelta
+
+# Connection to MySQL
+mysql_conn = pymysql.connect(host='mysql', user='root', password='my-secret-pw', db='tpch')
+
+# Getting current date to calculate 7 years ago
+current_date = datetime.now()
+seven_years_ago = current_date - timedelta(days=7*365)
+
+# MySQL query
+mysql_query = """
+SELECT O_CUSTKEY
+FROM orders
+WHERE O_ORDERDATE <= '{}';
+""".format(seven_years_ago.strftime('%Y-%m-%d'))
+
+# Execute the query
+with mysql_conn.cursor() as cursor:
+    cursor.execute(mysql_query)
+    # Fetch all customers who have placed orders within 7 years
+    customers_with_orders = set(row[0] for row in cursor.fetchall())
+
+# Close the connection
+mysql_conn.close()
+
+# Connect to Redis
+redis_conn = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Extract customer data from Redis and convert to Pandas DataFrame
+customer_data = pd.DataFrame(redis_conn.get('customer'))
+
+# Filter customer data according to the conditions
+country_codes = ('20', '40', '22', '30', '39', '42', '21')
+filtered_customers = customer_data[
+    (customer_data['C_CUSTKEY'].apply(lambda x: x not in customers_with_orders)) &  # no orders in the last 7 years
+    (customer_data['C_PHONE'].str[:2].isin(country_codes)) &  # one of the specified country codes
+    (customer_data['C_ACCTBAL'] > 0.00)  # account balance larger than 0.00
+]
+
+# Calculate average account balance for those countries
+average_balance = filtered_customers['C_ACCTBAL'].mean()
+
+# Further filter according to account balance above average
+final_customers = filtered_customers[filtered_customers['C_ACCTBAL'] > average_balance]
+
+# Group by the first two characters of C_PHONE and perform the necessary calculations
+output = final_customers.groupby(filtered_customers['C_PHONE'].str[:2]).agg({
+    'C_CUSTKEY': 'count',
+    'C_ACCTBAL': 'sum'
+}).reset_index()
+
+output.columns = ['CNTRYCODE', 'NUM_CUSTOMERS', 'TOTAL_ACCTBAL']
+output = output.sort_values('CNTRYCODE').reset_index(drop=True)
+
+# Write to CSV
+output.to_csv('query_output.csv', index=False)
+```
+
+2. The Bash script to install all dependencies (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+
+# Update package list and install Python and pip
+apt-get update
+apt-get install -y python3 python3-pip
+
+# Install necessary Python packages
+pip3 install pymysql direct_redis pandas
+```
+created_time, 1701210272
+completion_tokens, 593
+prompt_tokens, 541
+total_tokens, 1134

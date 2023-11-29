@@ -1,0 +1,63 @@
+uid, chatcmpl-8Q0Rb8f8y9Jc9lCLHorRpWONfWCa3
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: orders, lineitem\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Order Priority Checking Query counts the number of orders ordered between 1993-07-01 and 1993-10-01 in which at least one lineitem was received by the customer later than its committed date. The query lists the count of such orders for each order priority sorted in ascending priority order. Please output the columns in the order of ORDER_COUNT and O_ORDERPRIORITY\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 19.877615928649902
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (`query_execution.py`):
+```python
+import pandas as pd
+from direct_redis import DirectRedis
+import csv
+
+# Connect to Redis
+redis_host = "redis"
+redis_port = 6379
+redis_db = 0
+r = DirectRedis(host=redis_host, port=redis_port, db=redis_db)
+
+# Load the data from Redis
+try:
+    orders_df = pd.read_json(r.get('orders'))
+    lineitem_df = pd.read_json(r.get('lineitem'))
+except Exception as e:
+    print(f"An error occurred when reading data from Redis: {e}")
+    raise
+
+# Filter the data based on the date criteria
+orders_df['O_ORDERDATE'] = pd.to_datetime(orders_df['O_ORDERDATE'])
+filtered_orders = orders_df[(orders_df['O_ORDERDATE'] >= '1993-07-01') & (orders_df['O_ORDERDATE'] <= '1993-10-01')]
+
+# Filter lineitem by L_COMMITDATE and L_RECEIPTDATE
+lineitem_df['L_COMMITDATE'] = pd.to_datetime(lineitem_df['L_COMMITDATE'])
+lineitem_df['L_RECEIPTDATE'] = pd.to_datetime(lineitem_df['L_RECEIPTDATE'])
+late_lineitems = lineitem_df[lineitem_df['L_RECEIPTDATE'] > lineitem_df['L_COMMITDATE']]
+
+# Join the dataframes on the order key
+orders_with_late_lineitems = filtered_orders.merge(late_lineitems, left_on='O_ORDERKEY', right_on='L_ORDERKEY', how='inner')
+
+# Count the number of orders for each priority
+order_counts = orders_with_late_lineitems.groupby('O_ORDERPRIORITY')['O_ORDERKEY'].nunique().reset_index(name='ORDER_COUNT')
+
+# Sort by priority ascending
+sorted_order_counts = order_counts.sort_values(by='O_ORDERPRIORITY')
+
+# Output the columns as ORDER_COUNT then O_ORDERPRIORITY
+final_output = sorted_order_counts[['ORDER_COUNT', 'O_ORDERPRIORITY']]
+
+# Write to CSV
+final_output.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script for dependencies (`install_dependencies.sh`):
+```bash
+#!/bin/bash
+pip install pandas redis direct-redis
+```
+created_time, 1701208927
+completion_tokens, 467
+prompt_tokens, 423
+total_tokens, 890

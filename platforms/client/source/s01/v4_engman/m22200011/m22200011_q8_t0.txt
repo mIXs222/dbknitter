@@ -1,0 +1,108 @@
+uid, chatcmpl-8Q0pUt4hKI7HMJ1MUPCfgdYaijASW
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: supplier, customer\nRelevant table names and their schemas in mysql:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: orders, lineitem\nRelevant table names and their schemas in mongodb:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, region, part\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query determines how the market share of INDIA within ASIA has changed over two years of the product type SMALL PLATED COPPER., The market share for INDIA within ASIA is defined as the fraction of the revenue, the sum of [l_extendedprice * (1-l_discount)], from the products of SMALL PLATED COPPER in ASIA that was supplied by suppliers from INDIA. The query determines this for the years 1995 and 1996 presented in this order. Please output the columns in the order of order year and market share.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 36.862935066223145
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (`query_execution.py`) to execute the query:
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+import csv
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(host='mysql', user='root', password='my-secret-pw', db='tpch')
+mysql_cursor = mysql_conn.cursor()
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient("mongodb", 27017)
+mongo_db = mongo_client["tpch"]
+
+# Connect to Redis
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# Get data from MySQL
+mysql_cursor.execute("SELECT S_SUPPKEY FROM supplier WHERE S_NATIONKEY IN (SELECT N_NATIONKEY FROM nation WHERE N_NAME = 'INDIA' AND N_REGIONKEY IN (SELECT R_REGIONKEY FROM region WHERE R_NAME = 'ASIA'))")
+suppliers_from_india = mysql_cursor.fetchall()
+suppliers_from_india_ids = [s[0] for s in suppliers_from_india]
+
+# Get orders and lineitems from MongoDB
+orders_collection = mongo_db["orders"]
+lineitems_collection = mongo_db["lineitem"]
+
+# Get nations and regions from Redis
+nation_df = pd.read_json(redis_client.get('nation'))
+region_df = pd.read_json(redis_client.get('region'))
+asia_region_key = region_df[region_df['R_NAME'] == 'ASIA']['R_REGIONKEY'].iloc[0]
+india_nation_key = nation_df[(nation_df['N_NAME'] == 'INDIA') & (nation_df['N_REGIONKEY'] == asia_region_key)]['N_NATIONKEY'].iloc[0]
+
+# Get part information from Redis
+part_df = pd.read_json(redis_client.get('part'))
+small_plated_copper = part_df[part_df['P_TYPE'] == 'SMALL PLATED COPPER']
+
+# Aggregate results
+market_share_by_year = {}
+
+for year in ['1995', '1996']:
+    orders_in_year = orders_collection.find({"O_ORDERDATE": {"$regex": year}})
+    order_keys_in_year = [order["O_ORDERKEY"] for order in orders_in_year]
+
+    lineitems_in_year = lineitems_collection.find({"L_ORDERKEY": {"$in": order_keys_in_year},
+                                                   "L_SUPPKEY": {"$in": suppliers_from_india_ids},
+                                                   "L_PARTKEY": {"$in": small_plated_copper['P_PARTKEY'].tolist()}})
+
+    total_revenue = 0
+    india_revenue = 0
+    for lineitem in lineitems_in_year:
+        total_price = lineitem["L_EXTENDEDPRICE"] * (1 - lineitem["L_DISCOUNT"])
+        if lineitem["L_SUPPKEY"] in suppliers_from_india_ids:
+            india_revenue += total_price
+        total_revenue += total_price
+
+    market_share_by_year[year] = india_revenue / total_revenue if total_revenue else 0
+
+# Close database connections
+mysql_conn.close()
+mongo_client.close()
+
+# Write output to CSV
+with open('query_output.csv', mode='w') as file:
+    writer = csv.writer(file)
+    writer.writerow(['Order Year', 'Market Share'])
+
+    for year, market_share in market_share_by_year.items():
+        writer.writerow([year, market_share])
+```
+
+And here is the bash script (`install_dependencies.sh`) to install all dependencies:
+
+```bash
+#!/bin/bash
+
+# Update and install system-wide packages
+sudo apt update
+sudo apt install -y python3-pip
+
+# Install Python package dependencies
+pip3 install pymysql pymongo pandas 'redis==4.3.4'
+
+# download direct_redis from GitHub and install
+git clone https://github.com/dongjinleekr/direct-redis.git 
+cd direct-redis 
+python3 setup.py install
+
+# Note: redis version fixed at 4.3.4 due to compatibility with direct_redis at the time of writing.
+# You should check for compatibility issues before running this script.
+```
+
+Make sure you have execute permissions for the bash script by running `chmod +x install_dependencies.sh` before executing it.
+created_time, 1701210408
+completion_tokens, 860
+prompt_tokens, 748
+total_tokens, 1608

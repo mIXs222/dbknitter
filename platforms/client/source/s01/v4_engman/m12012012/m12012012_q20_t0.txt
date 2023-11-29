@@ -1,0 +1,102 @@
+uid, chatcmpl-8PzcXaHpYXe40bxy904UC6QIJ1EuU
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: part\nRelevant table names and their schemas in mysql:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: nation, supplier\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: partsupp, lineitem\nRelevant table names and their schemas in redis:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 37.659870862960815
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, First, let's start with the Python code that will execute the complex query on different data platforms and combine the results:
+
+```python
+# Potential_Part_Promotion.py
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+from datetime import datetime
+from io import StringIO
+
+# Establish connection to MySQL database
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch'
+)
+
+# Establish connection to MongoDB
+mongo_client = pymongo.MongoClient(host='mongodb', port=27017)
+mongo_db = mongo_client['tpch']
+
+# Establish connection to Redis
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# Query MySQL for part details with the specified pattern
+part_query = "SELECT P_PARTKEY, P_NAME FROM part WHERE P_NAME LIKE 'forest%'"
+mysql_parts = pd.read_sql(part_query, mysql_conn)
+mysql_conn.close()  # Close MySQL connection
+
+# Query MongoDB for suppliers in Canada
+suppliers_in_canada = list(mongo_db['nation'].find({'N_NAME': 'CANADA'}, {'N_NATIONKEY': 1}))
+canada_key_list = [n['N_NATIONKEY'] for n in suppliers_in_canada]
+suppliers = mongo_db['supplier'].find({'S_NATIONKEY': {'$in': canada_key_list}})
+supplier_df = pd.DataFrame(suppliers)
+
+# Get partsupp and lineitem from Redis
+partsupp_df = pd.read_parquet(StringIO(redis_conn.get('partsupp')), engine='pyarrow')
+lineitem_df = pd.read_parquet(StringIO(redis_conn.get('lineitem')), engine='pyarrow')
+
+# Filter lineitem table for the date range and join with parts and suppliers
+lineitem_df['L_SHIPDATE'] = pd.to_datetime(lineitem_df['L_SHIPDATE'])
+filtered_lineitem = lineitem_df[(lineitem_df['L_SHIPDATE'] >= datetime(1994, 1, 1)) &
+                                (lineitem_df['L_SHIPDATE'] < datetime(1995, 1, 1))]
+
+# Join the dataframes to find suppliers with more than 50% of the parts like the forest part
+merged_part_lineitem = pd.merge(filtered_lineitem, mysql_parts, left_on='L_PARTKEY', right_on='P_PARTKEY')
+merged_partsupp_lineitem = pd.merge(partsupp_df, merged_part_lineitem, on=['PS_PARTKEY', 'PS_SUPPKEY'])
+supplier_part_qty = merged_partsupp_lineitem.groupby(['S_SUPPKEY']).agg(
+    total_qty=('PS_AVAILQTY', 'sum'),
+    shipped_qty=('L_QUANTITY', 'sum')
+).reset_index()
+
+# Identify suppliers with excess forest part
+supplier_part_qty['excess'] = supplier_part_qty['total_qty'] > (1.5 * supplier_part_qty['shipped_qty'])
+suppliers_with_excess = supplier_part_qty[supplier_part_qty['excess']]
+
+# Join with supplier dataframe to get supplier names
+suppliers_with_excess = pd.merge(suppliers_with_excess, supplier_df, left_on='S_SUPPKEY', right_on='S_SUPPKEY')
+
+# Write result to query_output.csv
+suppliers_with_excess.to_csv('query_output.csv', index=False)
+```
+
+Now, for the bash script that installs all dependencies to run the above Python code:
+
+```bash
+# install_dependencies.sh
+#!/bin/bash
+
+# Update package list
+apt-get update
+
+# Upgrade existing packages
+apt-get upgrade -y
+
+# Install Python pip
+apt-get install python3-pip -y
+
+# Install required libraries
+pip3 install pymysql pymongo pandas pyarrow
+
+# Redis installation
+apt-get install redis-server -y
+pip3 install direct-redis
+```
+
+Please remember to make the bash script executable by running `chmod +x install_dependencies.sh` before running it.
+created_time, 1701205761
+completion_tokens, 820
+prompt_tokens, 638
+total_tokens, 1458

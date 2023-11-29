@@ -47,7 +47,7 @@ mkdir -p platforms/client/source platforms/client/output platforms/client/expect
 bash cloudlab/start-all.sh > ${output_dir}/docker.stdout 2> ${output_dir}/docker.stderr &
 docker_pid=$!
 echo "Starting Docker containers (PID= ${docker_pid})"
-sleep 20
+sleep 30
 echo "Started Docker containers (PID= ${docker_pid})"
 
 # Load tables

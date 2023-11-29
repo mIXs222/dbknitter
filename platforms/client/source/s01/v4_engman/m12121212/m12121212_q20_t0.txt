@@ -1,0 +1,73 @@
+uid, chatcmpl-8Q1r9OZpASJR7BVlpEwuWrJQf5vv7
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: nation, part, partsupp\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: supplier, lineitem\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 34.19800901412964
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code that addresses your request (`query_code.py`):
+
+```python
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+import csv
+import datetime
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongodb = mongo_client["tpch"]
+nation_tb = mongodb["nation"]
+part_tb = mongodb["part"]
+partsupp_tb = mongodb["partsupp"]
+
+# Connect to Redis
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# Get data from MongoDB and Redis
+nation_df = pd.DataFrame(list(nation_tb.find()))
+part_df = pd.DataFrame(list(part_tb.find()))
+partsupp_df = pd.DataFrame(list(partsupp_tb.find()))
+supplier_df = pd.read_json(redis_client.get('supplier').decode('utf-8'))
+lineitem_df = pd.read_json(redis_client.get('lineitem').decode('utf-8'))
+
+# Filter data
+canada_nations = nation_df[nation_df['N_NAME'] == 'CANADA']['N_NATIONKEY'].tolist()
+supplier_canada_df = supplier_df[supplier_df['S_NATIONKEY'].isin(canada_nations)]
+forest_parts_df = part_df[part_df['P_NAME'].str.contains('forest')]
+relevant_line_items = lineitem_df[(lineitem_df['L_SHIPDATE'] >= datetime.date(1994, 1, 1)) &
+                                  (lineitem_df['L_SHIPDATE'] < datetime.date(1995, 1, 1)) &
+                                  (lineitem_df['L_PARTKEY'].isin(forest_parts_df['P_PARTKEY']))]
+
+# Merge to get the necessary information
+merged_df = relevant_line_items.merge(supplier_canada_df, left_on='L_SUPPKEY', right_on='S_SUPPKEY')
+grouped_df = merged_df.groupby(by=['L_SUPPKEY', 'S_NAME'], as_index=False).agg({
+    'L_QUANTITY': 'sum'
+})
+
+# Filter suppliers with excess parts using partsupp information
+supplier_totals = partsupp_df[partsupp_df['PS_PARTKEY'].isin(forest_parts_df['P_PARTKEY'])] \
+    .groupby(by='PS_SUPPKEY', as_index=False).agg({
+        'PS_AVAILQTY': 'sum'
+    })
+excess_suppliers_df = pd.merge(grouped_df, supplier_totals, how='left', left_on='L_SUPPKEY', right_on='PS_SUPPKEY')
+excess_suppliers_df['EXCESS'] = excess_suppliers_df['L_QUANTITY'] > excess_suppliers_df['PS_AVAILQTY'] * 0.5
+excess_suppliers_df = excess_suppliers_df[excess_suppliers_df['EXCESS']]
+
+# Select relevant columns and save to CSV
+output_df = excess_suppliers_df[['S_NAME']]
+output_df.to_csv('query_output.csv', index=False, quoting=csv.QUOTE_ALL)
+```
+
+And here is the corresponding bash script to install the dependencies (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+pip install pymongo pandas redis direct-redis
+```
+created_time, 1701214355
+completion_tokens, 649
+prompt_tokens, 554
+total_tokens, 1203

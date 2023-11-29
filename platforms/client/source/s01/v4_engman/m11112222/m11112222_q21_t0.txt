@@ -1,0 +1,69 @@
+uid, chatcmpl-8Q04h4hahcGJzX3psHidUG4FS7on9
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: nation, supplier\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: orders, lineitem\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Suppliers Who Kept Orders Waiting query identifies suppliers, for a nation which is SAUDI ARABIA, whose product was part of a multi-supplier order with current [status] of 'F' where they were the only supplier who failed to meet the committed delivery date. Multi-Supplier order means the same order has multiple lineitems that has different suppliers. Please output NUMWAIT and S_NAME columne in the order of number of await lineitems in descending order and S_NAME ascending.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 41.14319896697998
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Part 1: Here's the Python code to execute the query on your original data:
+
+```python
+import pymongo
+import json
+import csv
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = mongo_client["tpch"]
+nation_collection = mongo_db["nation"]
+supplier_collection = mongo_db["supplier"]
+
+# Connect to Redis
+r = DirectRedis(host='redis', port=6379, db=0)
+
+# Fetch SAUDI ARABIA nation key
+saudi_arabia_key = nation_collection.find_one({"N_NAME": "SAUDI ARABIA"})["N_NATIONKEY"]
+
+# Fetch suppliers from SAUDI ARABIA
+suppliers = list(supplier_collection.find({"S_NATIONKEY": saudi_arabia_key}))
+
+# Get orders and lineitem from Redis as DataFrames
+orders = pd.DataFrame(json.loads(r.get('orders')))
+lineitem = pd.DataFrame(json.loads(r.get('lineitem')))
+
+# Filter orders with status 'F'
+orders = orders[orders['O_ORDERSTATUS'] == 'F']
+
+# Merge and filter orders with multiple suppliers
+multi_supplier_orders = lineitem[lineitem.duplicated(subset=['L_ORDERKEY'], keep=False)]
+
+# Merge suppliers and their lineitems
+supplier_lineitem = pd.merge(suppliers, multi_supplier_orders, left_on='S_SUPPKEY', right_on='L_SUPPKEY')
+
+# Filter lineitems where the committed date is not met
+failed_lineitems = supplier_lineitem[supplier_lineitem['L_COMMITDATE'] < supplier_lineitem['L_RECEIPTDATE']]
+
+# Count the number of awaiting lineitems for each supplier
+supplier_await_count = failed_lineitems.groupby(['S_SUPPKEY', 'S_NAME']).size().reset_index(name='NUMWAIT')
+
+# Sort as per the query requirement
+supplier_await_count_sorted = supplier_await_count.sort_values(by=['NUMWAIT', 'S_NAME'], ascending=[False, True])
+
+# Output to CSV file
+supplier_await_count_sorted.to_csv('query_output.csv', index=False, columns=['NUMWAIT', 'S_NAME'])
+```
+
+Part 2: Bash script to install all the dependencies to run the Python code:
+
+```bash
+#!/bin/bash
+pip install pymongo pandas redis direct_redis
+```
+created_time, 1701207507
+completion_tokens, 486
+prompt_tokens, 560
+total_tokens, 1046

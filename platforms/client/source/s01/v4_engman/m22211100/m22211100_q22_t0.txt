@@ -1,0 +1,105 @@
+uid, chatcmpl-8Q17delhJiKIj6Y5DtOv8V0ame27d
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: orders\nRelevant table names and their schemas in mysql:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: customer\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Global Sales Opportunity Query identifies geographies where there are customers who may be likely to make a purchase. This query counts how many customers within a specific range of country codes have not placed orders for 7 years whose account balance is greater than the average account balance of people whose account balance is larger than 0.00 in those countries. It also reflects the magnitude of that balance. Country code is defined as the first two characters of c_phone which should be one of '20', '40', '22', '30', '39', '42', or '21'. Please output the columns in the order of CNTRYCODE, number of such customers, and total account balance of those customers. It should be by in the order of CNTRYCODE ascending\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 47.106834173202515
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (`query.py`) to execute your request.
+
+```python
+import pymysql
+import pymongo
+import csv
+from datetime import datetime, timedelta
+from decimal import Decimal
+
+# Constants for the country codes
+ALLOWED_COUNTRY_CODES = ['20', '40', '22', '30', '39', '42', '21']
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch'
+)
+try:
+    with mysql_conn.cursor() as cursor:
+        # Get average account balance greater than 0 for given country codes
+        country_code_balances = {}
+        for code in ALLOWED_COUNTRY_CODES:
+            query = """
+                SELECT AVG(C_ACCTBAL) 
+                FROM customer 
+                WHERE C_ACCTBAL > 0.00 AND SUBSTRING(C_PHONE, 1, 2) = %s
+            """
+            cursor.execute(query, (code,))
+            avg_balance = cursor.fetchone()[0] or 0
+            country_code_balances[code] = avg_balance
+
+        # Define 7 years ago
+        seven_years_ago = datetime.now() - timedelta(days=7*365)
+
+        # Prepare MongoDB connection
+        mongodb_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+        mongodb_db = mongodb_client["tpch"]
+        customer_collection = mongodb_db["customer"]
+
+        output_rows = []
+
+        # Query MongoDB for customers per country code with conditions
+        for code, avg_balance in country_code_balances.items():
+            customers = customer_collection.find({
+                'C_PHONE': {'$regex': f'^{code}'},
+                'C_ACCTBAL': {'$gt': avg_balance}
+            })
+            num_customers = 0
+            total_balance = Decimal('0.00')
+            for customer in customers:
+                # Check if the customer has not made orders within 7 years
+                last_order = list(cursor.execute(
+                    "SELECT MAX(O_ORDERDATE) FROM orders WHERE O_CUSTKEY = %s",
+                    (customer['C_CUSTKEY'],)
+                ))
+                if len(last_order) == 0 or last_order[0][0] < seven_years_ago:
+                    num_customers += 1
+                    total_balance += Decimal(str(customer['C_ACCTBAL']))
+
+            output_rows.append([code, num_customers, str(total_balance)])
+finally:
+    mysql_conn.close()
+
+# Sort output rows by country code ascending
+output_rows.sort(key=lambda x: x[0])
+
+# Write the output rows to a CSV file
+with open('query_output.csv', 'w', newline='') as csvfile:
+    csvwriter = csv.writer(csvfile)
+    csvwriter.writerow(['CNTRYCODE', 'NUM_CUSTOMERS', 'TOTAL_BALANCE'])
+    for row in output_rows:
+        csvwriter.writerow(row)
+```
+
+And here is the Bash script (`install_dependencies.sh`) to install all dependencies.
+
+```bash
+#!/bin/bash
+
+# Update package list
+apt-get update
+
+# Install Python and pip
+apt-get install -y python3 python3-pip
+
+# Install PyMySQL and PyMongo
+pip3 install pymysql pymongo
+```
+
+Please make sure to give execute permissions to the Bash script after creating it by running `chmod +x install_dependencies.sh` and then you can execute it by running `./install_dependencies.sh`. Also, please adjust the Python script and Bash script to comply with your environment's specific pathing, permissions, and usage requirements.
+created_time, 1701211533
+completion_tokens, 722
+prompt_tokens, 527
+total_tokens, 1249

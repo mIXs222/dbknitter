@@ -1,0 +1,82 @@
+uid, chatcmpl-8Pzeh93TAHlouqe5EMCkv5TBKG777
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: part\nRelevant table names and their schemas in mysql:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Small-Quantity-Order Revenue Query considers only parts of BRAND#23 and with MED BAG and determines the average lineitem quantity of such parts ordered for all orders (past and pending) in the 7-year database. What would be the average yearly gross (undiscounted) loss in revenue if orders for these parts with a quantity of less than 20% of this average were no longer taken? The output should be the average yearly loss.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 43.54345107078552
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, # 1. Python code (query_code.py)
+
+```python
+import pymysql
+import pandas as pd
+from direct_redis import DirectRedis
+
+def get_connection_mysql(db_name, user, passwd, host):
+    connection = pymysql.connect(host=host,
+                                 user=user,
+                                 password=passwd,
+                                 database=db_name,
+                                 cursorclass=pymysql.cursors.Cursor)
+    return connection
+
+def read_table_mysql(connection, query):
+    with connection.cursor() as cursor:
+        cursor.execute(query)
+        columns = [col[0] for col in cursor.description]
+        data = cursor.fetchall()
+        df = pd.DataFrame(data, columns=columns)
+    return df
+
+def get_redis_connection(db, host, port):
+    r = DirectRedis(host=host, port=port, db=db)
+    return r
+
+def read_dataframe_redis(connection, key):
+    data = connection.get(key)
+    df = pd.read_json(data)
+    return df
+
+# Connect to MySQL
+conn_mysql = get_connection_mysql('tpch', 'root', 'my-secret-pw', 'mysql')
+query_mysql = "SELECT P_PARTKEY, P_BRAND, P_CONTAINER FROM part WHERE P_BRAND = 'Brand#23' AND P_CONTAINER = 'MED BAG';"
+df_parts = read_table_mysql(conn_mysql, query_mysql)
+conn_mysql.close()
+
+# Connect to Redis
+conn_redis = get_redis_connection(0, 'redis', 6379)
+df_lineitems = read_dataframe_redis(conn_redis, 'lineitem')
+
+# Query logic combining MySQL and Redis data
+df = pd.merge(df_lineitems, df_parts, left_on='L_PARTKEY', right_on='P_PARTKEY')
+avg_quantity = df['L_QUANTITY'].mean()
+df_small_qty = df[df['L_QUANTITY'] < 0.2 * avg_quantity]
+annual_loss = df_small_qty.groupby(df_small_qty['L_SHIPDATE'].str[:4])['L_EXTENDEDPRICE'].sum().mean()
+
+# Output to CSV
+pd.DataFrame({'average_yearly_loss': [annual_loss]}).to_csv('query_output.csv', index=False)
+```
+
+# 2. Bash script (install_dependencies.sh)
+
+```bash
+#!/bin/bash
+
+# Updating package lists
+sudo apt-get update
+
+# Install Python 3.x and Pip if it's not already installed.
+sudo apt-get install -y python3 python3-pip
+
+# Install Python MySQL driver
+pip3 install pymysql
+
+# Install Python Redis driver and pandas
+pip3 install direct_redis pandas
+```
+created_time, 1701205895
+completion_tokens, 514
+prompt_tokens, 515
+total_tokens, 1029

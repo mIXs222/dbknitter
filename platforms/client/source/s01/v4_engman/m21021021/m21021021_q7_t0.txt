@@ -1,0 +1,111 @@
+uid, chatcmpl-8PztlMKba3QfO6GXYIgVulhCkZt0B
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: customer\nRelevant table names and their schemas in mysql:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: lineitem\nRelevant table names and their schemas in mongodb:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation, supplier, orders\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Volume Shipping Query finds, for two given nations which are INDIA and JAPAN, the gross discounted revenues (sum of all L_EXTENDEDPRICE * (1 - L_DISCOUNT)) derived from lineitems in which parts were shipped from a supplier in either nation to a customer in the other nation during 1995 and 1996. The query lists the supplier nation, the customer nation, the year, and the revenue from shipments that took place in that year. The query orders the answer by Supplier nation, Customer nation, and year (all ascending). Please output the columns in the order of CUST_NATION, L_YEAR, REVENUE, SUPP_NATION\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 41.01418399810791
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code that you requested:
+
+**VolumeShipping.py**
+```python
+import pandas as pd
+import pymysql
+import pymongo
+import direct_redis
+import csv
+from datetime import datetime
+
+# MySQL connection
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch',
+    cursorclass=pymysql.cursors.Cursor
+)
+mysql_cursor = mysql_conn.cursor()
+
+# Get customer data from MySQL
+mysql_cursor.execute("SELECT C_CUSTKEY, C_NATIONKEY FROM customer WHERE C_NATIONKEY IN (SELECT N_NATIONKEY FROM nation WHERE N_NAME IN ('INDIA', 'JAPAN'))")
+customer_data = mysql_cursor.fetchall()
+
+# Create DataFrame for customer data
+customer_df = pd.DataFrame(customer_data, columns=['C_CUSTKEY', 'C_NATIONKEY'])
+customer_df['C_NATIONKEY'] = customer_df['C_NATIONKEY'].astype(str)
+
+# MongoDB connection
+mongodb_client = pymongo.MongoClient('mongodb', 27017)
+mongodb_db = mongodb_client['tpch']
+
+# Get lineitem data from MongoDB
+lineitem_cursor = mongodb_db.lineitem.find({
+    "L_SHIPDATE": {"$gte": datetime(1995, 1, 1), "$lte": datetime(1996, 12, 31)}
+})
+lineitem_df = pd.DataFrame(list(lineitem_cursor))
+
+# Redis connection
+redis_client = direct_redis.DirectRedis(port=6379, host="redis")
+
+# Get nation data from Redis
+nation_df = pd.read_json(redis_client.get('nation').decode('utf-8'))
+nation_df['N_NATIONKEY'] = nation_df['N_NATIONKEY'].astype(str)
+
+# Get supplier data from Redis
+supplier_df = pd.read_json(redis_client.get('supplier').decode('utf-8'))
+supplier_df['S_NATIONKEY'] = supplier_df['S_NATIONKEY'].astype(str)
+
+# Join the data on keys and calculate the revenue
+merged_df = lineitem_df.merge(customer_df, left_on='L_CUSTKEY', right_on='C_CUSTKEY')
+merged_df = merged_df.merge(supplier_df, left_on='L_SUPPKEY', right_on='S_SUPPKEY')
+merged_df = merged_df[(merged_df['C_NATIONKEY'] != merged_df['S_NATIONKEY'])]
+merged_df['REVENUE'] = merged_df['L_EXTENDEDPRICE'] * (1 - merged_df['L_DISCOUNT'])
+merged_df['CUST_NATION'] = merged_df['C_NATIONKEY'].map(nation_df.set_index('N_NATIONKEY')['N_NAME'])
+merged_df['SUPP_NATION'] = merged_df['S_NATIONKEY'].map(nation_df.set_index('N_NATIONKEY')['N_NAME'])
+merged_df['L_YEAR'] = merged_df['L_SHIPDATE'].dt.year
+
+# Filter rows for nations India and Japan
+merged_df = merged_df[(merged_df['CUST_NATION'].isin(['INDIA', 'JAPAN'])) & (merged_df['SUPP_NATION'].isin(['INDIA', 'JAPAN']))]
+
+# Group by the necessary fields and calculate sum of revenue
+grouped_df = merged_df.groupby(['CUST_NATION', 'L_YEAR', 'SUPP_NATION'])
+summed_df = grouped_df['REVENUE'].sum().reset_index()
+
+# Order by supplier nation, customer nation, year - all ascending
+ordered_df = summed_df.sort_values(by=['SUPP_NATION', 'CUST_NATION', 'L_YEAR'])
+
+# Select and rename columns as per the instructions
+output_df = ordered_df[['CUST_NATION', 'L_YEAR', 'REVENUE', 'SUPP_NATION']]
+
+# Write to CSV
+output_df.to_csv('query_output.csv', index=False, quoting=csv.QUOTE_NONNUMERIC)
+
+# Close connections
+mysql_conn.close()
+mongodb_client.close()
+redis_client.close()
+
+print("Query output has been successfully written to 'query_output.csv'.")
+```
+
+**install_dependencies.sh**
+```sh
+#!/bin/bash
+
+# Update package lists
+apt-get update
+
+# Install Python and pip (the package may vary depending on your Linux distribution)
+apt-get install -y python3 python3-pip
+
+# Install the required Python libraries
+pip install pymysql pymongo pandas direct_redis
+```
+
+Make sure to give the bash script execute permission by running `chmod +x install_dependencies.sh` before executing it.
+created_time, 1701206829
+completion_tokens, 923
+prompt_tokens, 720
+total_tokens, 1643

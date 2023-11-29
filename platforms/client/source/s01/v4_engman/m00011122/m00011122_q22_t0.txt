@@ -1,0 +1,80 @@
+uid, chatcmpl-8Q0EOw8iBWJCSorwqatcre75IJXr6
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: orders\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Global Sales Opportunity Query identifies geographies where there are customers who may be likely to make a purchase. This query counts how many customers within a specific range of country codes have not placed orders for 7 years whose account balance is greater than the average account balance of people whose account balance is larger than 0.00 in those countries. It also reflects the magnitude of that balance. Country code is defined as the first two characters of c_phone which should be one of '20', '40', '22', '30', '39', '42', or '21'. Please output the columns in the order of CNTRYCODE, number of such customers, and total account balance of those customers. It should be by in the order of CNTRYCODE ascending\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 29.976952075958252
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code that executes the described query:
+
+```python
+# python_code.py
+
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+import pandas as pd
+import direct_redis
+
+# Connection to MongoDB
+mongo_client = MongoClient('mongodb', 27017)
+mongodb = mongo_client['tpch']
+customer_collection = mongodb['customer']
+
+# Filter and get the relevant customer data from MongoDB
+seven_years_ago = datetime.now() - timedelta(days=7*365)
+pipeline = [
+    {"$project": {"C_CUSTKEY": 1, "C_PHONE": {"$substr": ["$C_PHONE", 0, 2]}, "C_ACCTBAL": 1}},
+    {"$match": {"C_PHONE": {"$in": ['20', '40', '22', '30', '39', '42', '21']}}},
+    {"$group": {"_id": "$C_PHONE", "avg_acctbal": {"$avg": {"$cond": [{"$gt": ["$C_ACCTBAL", 0.00]}, "$C_ACCTBAL", None]}}}}
+]
+countries_customers = list(customer_collection.aggregate(pipeline))
+average_balances = {_['id']: _['avg_acctbal'] for _ in countries_customers}
+
+# Initiating connection to Redis
+r = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Getting order data from Redis, assumes each order is a separate key in the Redis database
+orders_df = pd.DataFrame(r.get('orders'))  # Use only if order data is stored in 'orders' key
+
+# Process order data
+orders_df['O_ORDERDATE'] = pd.to_datetime(orders_df['O_ORDERDATE'])
+recent_orders = orders_df['O_CUSTKEY'][orders_df['O_ORDERDATE'] > seven_years_ago].unique()
+
+# Exclude customers who placed recent orders and whose account balance is greater than 0
+filtered_customers = [
+    {
+        "id": _["_id"],
+        "num_customers": _["num_customers"],
+        "total_balance": _["total_balance"]
+    }
+    for _ in countries_customers if _["_id"] not in recent_orders and _["avg_acctbal"] > 0
+]
+
+# Output the results to CSV
+output_df = pd.DataFrame(filtered_customers, columns=['CNTRYCODE', 'num_customers', 'total_balance'])
+output_df.sort_values('CNTRYCODE', ascending=True, inplace=True)
+output_df.to_csv('query_output.csv', index=False)
+```
+
+And here is the bash script to install all dependencies:
+
+```bash
+# script.sh
+
+#!/bin/bash
+
+# Install MongoDB Driver
+pip install pymongo
+
+# Install Redis Data Access
+pip install direct_redis
+
+# Install pandas for DataFrame operations
+pip install pandas
+```
+created_time, 1701208108
+completion_tokens, 584
+prompt_tokens, 521
+total_tokens, 1105

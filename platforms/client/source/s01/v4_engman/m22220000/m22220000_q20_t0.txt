@@ -1,0 +1,97 @@
+uid, chatcmpl-8Q0EZnLC2hoU9gV7WQFvFcNsJPRfU
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: partsupp, lineitem\nRelevant table names and their schemas in mysql:\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: nation, part, supplier\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Potential Part Promotion query identifies suppliers who have an excess of a forest part; an excess is defined to be more than 50% of the parts like the forest part that the supplier shipped between 1994-01-01 and 1995-01-01 for CANADA. Only parts whose names share a certain naming convention are considered.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 32.95697593688965
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python script (query.py):
+```python
+import pymysql
+import pandas as pd
+from direct_redis import DirectRedis
+import csv
+from datetime import datetime
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(host='mysql', user='root', passwd='my-secret-pw', db='tpch')
+mysql_cursor = mysql_conn.cursor()
+
+# Connect to Redis
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# Get part and supplier data from Redis
+part_data = eval(redis_conn.get('part'))
+supplier_data = eval(redis_conn.get('supplier'))
+nation_data = eval(redis_conn.get('nation'))
+
+# Convert Redis data to pandas dataframes
+df_part = pd.DataFrame(part_data)
+df_supplier = pd.DataFrame(supplier_data)
+df_nation = pd.DataFrame(nation_data)
+
+# Query to select parts like forest from the MySQL database
+mysql_query_parts = """
+SELECT PS_PARTKEY, PS_SUPPKEY
+FROM partsupp
+WHERE PS_PARTKEY IN (
+    SELECT P_PARTKEY
+    FROM lineitem
+    INNER JOIN (SELECT * FROM part WHERE P_NAME LIKE 'forest%') AS forest_parts
+    ON lineitem.L_PARTKEY = forest_parts.P_PARTKEY
+    AND L_SHIPDATE BETWEEN '1994-01-01' AND '1995-01-01'
+)
+AND PS_AVAILQTY > (SELECT 0.5 * SUM(L_QUANTITY)
+                    FROM lineitem
+                    WHERE L_SHIPDATE BETWEEN '1994-01-01' AND '1995-01-01'
+                    AND L_PARTKEY IN (SELECT P_PARTKEY
+                                      FROM part
+                                      WHERE P_NAME LIKE 'forest%')
+                    )
+"""
+
+mysql_cursor.execute(mysql_query_parts)
+partsupp_results = mysql_cursor.fetchall()
+df_partsupp = pd.DataFrame(partsupp_results, columns=['PS_PARTKEY', 'PS_SUPPKEY'])
+
+# Join the pandas dataframes
+df_merged = pd.merge(df_partsupp, df_supplier, left_on='PS_SUPPKEY', right_on='S_SUPPKEY')
+df_merged = df_merged[df_merged['S_NATIONKEY'] == df_nation[df_nation['N_NAME'] == 'CANADA']['N_NATIONKEY'].values[0]]
+df_merged = df_merged[['S_SUPPKEY', 'S_NAME', 'S_ADDRESS', 'S_PHONE', 'S_ACCTBAL', 'S_COMMENT']]
+
+# Close connections
+mysql_cursor.close()
+mysql_conn.close()
+
+# Write the results to a CSV file
+df_merged.to_csv('query_output.csv', index=False, quoting=csv.QUOTE_NONNUMERIC)
+```
+
+2. Bash script (install_dependencies.sh):
+```bash
+#!/bin/bash
+
+# Update package list
+sudo apt-get update
+
+# Install Python3 and pip
+sudo apt-get install -y python3 python3-pip
+
+# Install pymysql, pandas, and redis
+pip3 install pymysql pandas
+
+# Clone and install direct_redis (you may need Git installed for this)
+git clone https://github.com/priestc/direct_redis.git
+cd direct_redis
+python3 setup.py install
+cd .. && rm -rf direct_redis
+
+# Running the python script
+python3 query.py
+```
+created_time, 1701208119
+completion_tokens, 665
+prompt_tokens, 574
+total_tokens, 1239

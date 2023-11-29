@@ -1,0 +1,80 @@
+uid, chatcmpl-8Q0hz5rZ12EHaHek6mPeVtq6mkTTo
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: part\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: supplier, partsupp\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds out how many suppliers can supply parts with given attributes. It might be used, for example, to determine whether there is a sufficient number of suppliers for heavily ordered parts., The Parts/Supplier Relationship Query counts the number of suppliers who can supply parts that satisfy a particular customer's requirements which does not have a brand id of 45. The customer is interested in parts of eight different sizes which are one of 49, 14, 23, 45, 19, 3, 36, or 9, as long as they are not of MEDIUM POLISHED, not of a brand 45, and not from a supplier who has had complaints registered at the Better Business Bureau. Results must be presented in descending count and ascending brand, type, and size.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 34.194397926330566
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, **Python Code (query.py):**
+```python
+import pymongo
+import pandas as pd
+import direct_redis
+import csv
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient('mongodb', 27017)
+mongo_db = mongo_client['tpch']
+mongo_collection = mongo_db['part']
+
+# Fetch the data from MongoDB and load into Pandas DataFrame
+mongo_query = {
+    'P_SIZE': {'$in': [49, 14, 23, 45, 19, 3, 36, 9]},
+    'P_BRAND': {'$ne': 'Brand#45'},
+    'P_TYPE': {'$not': {'$regex': 'MEDIUM POLISHED.*'}},
+}
+mongo_fields = {
+    '_id': False,
+    'P_PARTKEY': True
+}
+
+parts_df = pd.DataFrame(list(mongo_collection.find(mongo_query, mongo_fields)))
+
+# Connect to Redis
+redis_host = 'redis'
+redis_port = 6379
+redis_db = direct_redis.DirectRedis(host=redis_host, port=redis_port)
+
+# Fetch data from Redis and load into Pandas DataFrame
+supplier_df = pd.DataFrame(redis_db.get('supplier'))
+partsupp_df = pd.DataFrame(redis_db.get('partsupp'))
+
+# Filter the partsupp data to exclude supplier with complaints (assumed field)
+complaints_supp_keys = supplier_df[supplier_df['S_COMMENT'].str.contains('Customer Complaints')]['S_SUPPKEY'].tolist()
+partsupp_df = partsupp_df[~partsupp_df['PS_SUPPKEY'].isin(complaints_supp_keys)]
+
+# Merge datasets to filter valid suppliers for valid parts
+valid_supplier_parts = partsupp_df.merge(parts_df, left_on='PS_PARTKEY', right_on='P_PARTKEY')
+count_valid_suppliers = valid_supplier_parts.groupby(['P_BRAND', 'P_TYPE', 'P_SIZE']).agg({'PS_SUPPKEY': 'nunique'}).reset_index()
+
+# Sort the result as per the query
+sorted_suppliers = count_valid_suppliers.sort_values(by=['PS_SUPPKEY', 'P_BRAND', 'P_TYPE', 'P_SIZE'], ascending=[False, True, True, True])
+
+# Write results to CSV file
+sorted_suppliers.to_csv('query_output.csv', index=False, quoting=csv.QUOTE_NONNUMERIC)
+```
+
+**Bash Script (install_dependencies.sh):**
+```bash
+#!/bin/bash
+
+# Update the package list
+sudo apt update
+
+# Install Python pip
+sudo apt install -y python3-pip
+
+# Upgrade pip
+pip3 install --upgrade pip
+
+# Install the necessary Python packages
+pip3 install pymongo
+pip3 install pandas
+pip3 install git+https://github.com/RedisDirect/direct_redis.git
+```
+created_time, 1701209943
+completion_tokens, 570
+prompt_tokens, 545
+total_tokens, 1115

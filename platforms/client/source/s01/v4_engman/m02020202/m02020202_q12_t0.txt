@@ -1,0 +1,79 @@
+uid, chatcmpl-8Q0iildwJXfXyxKOb9F8pbnuGs138
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: orders\nRelevant table names and their schemas in mysql:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query determines whether selecting less expensive modes of shipping is negatively affecting the critical-priority orders by causing more parts to be received by customers after the committed date. We only consider line items that are actually received by customers between 1994-01-01 and 1995-01-01 which is the receipt date, the l_receiptdate should exceeds the l_commitdate, the ship mode should be in 'mail' or 'ship'. Also, only lineitems that were actually shipped before the l_commitdate are considered. The output results are grouped and ordered by l_shipmode in ascending order. For each group, we also count the number of lineitems of high order priority (those with priority URGENT or HIGH), and the number of lineitems of low order priority  (with a priority other than URGENT or HIGH).\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 21.13156485557556
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python Code (`query_code.py`):
+
+```python
+import pymysql
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Connect to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch'
+)
+
+# Query the orders table in mysql
+orders_query = """
+SELECT O_ORDERKEY, O_ORDERPRIORITY
+FROM orders
+WHERE O_ORDERPRIORITY = '1-URGENT' OR O_ORDERPRIORITY = '2-HIGH'
+"""
+orders_df = pd.read_sql(orders_query, mysql_conn)
+mysql_conn.close()
+
+# Connect to Redis
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# Get the lineitem dataframe from Redis
+lineitem_df = redis_conn.get('lineitem')
+lineitem_df = pd.DataFrame(lineitem_df)
+
+# Keep only necessary columns and rows from the lineitem dataframe
+lineitem_df = lineitem_df[
+    (lineitem_df['L_SHIPMODE'].isin(['MAIL', 'SHIP'])) &
+    (lineitem_df['L_SHIPDATE'] < lineitem_df['L_COMMITDATE']) &
+    (lineitem_df['L_RECEIPTDATE'].between('1994-01-01', '1995-01-01')) &
+    (lineitem_df['L_RECEIPTDATE'] > lineitem_df['L_COMMITDATE'])
+]
+
+# Merge the dataframes on O_ORDERKEY and L_ORDERKEY
+merged_df = pd.merge(orders_df, lineitem_df, left_on='O_ORDERKEY', right_on='L_ORDERKEY')
+
+# Create the result dataframe from the merged dataframe
+result_df = merged_df.groupby('L_SHIPMODE')['L_ORDERKEY'].agg(
+    high_priority_count=pd.NamedAgg(column='O_ORDERPRIORITY', aggfunc=lambda x: (x.isin(['1-URGENT', '2-HIGH'])).sum()),
+    low_priority_count=pd.NamedAgg(column='O_ORDERPRIORITY', aggfunc=lambda x: (~x.isin(['1-URGENT', '2-HIGH'])).sum())
+).reset_index()
+
+# Save result to CSV
+result_df.to_csv('query_output.csv', index=False)
+```
+
+2. Bash Script (`install_dependencies.sh`):
+
+```bash
+#!/bin/bash
+
+# Update package lists
+apt-get update
+
+# Install pip and Redis, if they are not already installed
+apt-get install -y python3-pip redis-server
+
+# Install Python libraries
+pip3 install pymysql pandas direct_redis
+```
+created_time, 1701209988
+completion_tokens, 533
+prompt_tokens, 598
+total_tokens, 1131

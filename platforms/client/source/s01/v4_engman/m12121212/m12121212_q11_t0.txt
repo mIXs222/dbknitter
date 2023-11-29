@@ -1,0 +1,93 @@
+uid, chatcmpl-8Q1naePoECQy32hH8Jgy01afBy4fZ
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: nation, partsupp\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: supplier\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds the most important subset of suppliers' stock in GERMANY., The Important Stock Identification Query finds, from scanning the available stock of suppliers in GERMANY, all the parts that represent a significant percentage (larger then 0.0001) of the total value of all available parts. The query displays the part number and the value of those parts in descending order of value.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 25.403598070144653
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code to execute the described query:
+
+```python
+# File name: find_important_stock.py
+
+import pymongo
+import pandas as pd
+import csv
+from direct_redis import DirectRedis
+
+# Connect to MongoDB
+mongo_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = mongo_client["tpch"]
+nation_collection = mongo_db["nation"]
+partsupp_collection = mongo_db["partsupp"]
+
+# Connect to Redis
+redis_client = DirectRedis(host="redis", port=6379, db=0)
+
+# Load 'supplier' table into DataFrame using Redis
+supplier_data = eval(redis_client.get('supplier'))
+supplier_df = pd.DataFrame(supplier_data)
+
+# Load 'nation' and 'partsupp' tables into DataFrames using MongoDB
+nation_df = pd.DataFrame(list(nation_collection.find()))
+partsupp_df = pd.DataFrame(list(partsupp_collection.find()))
+
+# Find suppliers from GERMANY
+germany_nationkey = nation_df[nation_df['N_NAME'] == 'GERMANY']['N_NATIONKEY'].values[0]
+germany_supplier_df = supplier_df[supplier_df['S_NATIONKEY'] == germany_nationkey]
+
+# Join the suppliers with partsupp on supplier key
+important_stock_df = germany_supplier_df.merge(partsupp_df, left_on='S_SUPPKEY', right_on='PS_SUPPKEY')
+
+# Calculate the value of the stock and filter
+important_stock_df['STOCK_VALUE'] = important_stock_df['PS_AVAILQTY'] * important_stock_df['PS_SUPPLYCOST']
+total_value = important_stock_df['STOCK_VALUE'].sum()
+significant_stock_df = important_stock_df[important_stock_df['STOCK_VALUE'] > total_value * 0.0001]
+
+# Sort by stock value in descending order and select relevant columns
+significant_stock_df.sort_values(by='STOCK_VALUE', ascending=False, inplace=True)
+output_df = significant_stock_df[['PS_PARTKEY', 'STOCK_VALUE']]
+
+# Output the result to CSV
+output_df.to_csv('query_output.csv', index=False, quoting=csv.QUOTE_NONNUMERIC)
+```
+
+And here's the bash script to install all dependencies:
+
+```bash
+# File name: setup.sh
+
+#!/usr/bin/env bash
+
+# Updating the package list
+apt-get update
+
+# Installing pip and Python dev tools
+apt-get install -y python3-pip python3-dev
+
+# Make sure that setuptools is installed
+python3 -m pip --no-cache-dir install --upgrade setuptools
+
+# Install pymongo
+python3 -m pip --no-cache-dir install pymongo
+
+# Install pandas
+python3 -m pip --no-cache-dir install pandas
+
+# Install redis
+python3 -m pip --no-cache-dir install redis
+
+# Install direct_redis
+python3 -m pip --no-cache-dir install direct-redis
+
+# Note: Since the setup might be running as a script, it would be wise to use a virtual environment if possible. 
+# This example does not include setting up a virtual environment to keep things simple.
+```
+
+Make sure to set the execute permission on the bash script by running `chmod +x setup.sh` before executing it.
+created_time, 1701214134
+completion_tokens, 654
+prompt_tokens, 447
+total_tokens, 1101

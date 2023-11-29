@@ -1,0 +1,89 @@
+uid, chatcmpl-8Q0atQbkDRZdVrRultDmtYt6eH2AC
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: nation, region, part\nRelevant table names and their schemas in mongodb:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\n- region: R_REGIONKEY, R_NAME, R_COMMENT\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: supplier, partsupp\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Minimum Cost Supplier Query finds, in EUROPE region, for each part of a BRASS type and size of 15, the supplier who can supply it at minimum supply cost. If several suppliers in that EUROPE offers the BRASS part and size of 15 at the same (minimum) cost, the query lists the suppliers with the order by account balance in descending order, and nation name, supplier name, part key in ascending order. For each supplier, the query lists the supplier's account balance, name and nation; the part's number and manufacturer; the supplier's address, phone number and comment information. Please output the columns in the order of N_NAME, P_MFGR, P_PARTKEY, S_ACCTBAL, S_ADDRESS, S_COMMENT, S_NAME, S_PHONE.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 34.481642961502075
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (query_min_cost_supplier.py):
+
+```python
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+
+# MongoDB Connection
+mongo_client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = mongo_client["tpch"]
+mongo_nation = mongo_db["nation"].find({}, {"_id": 0})
+mongo_region = mongo_db["region"].find({}, {"_id": 0})
+mongo_part = mongo_db["part"].find(
+    {"P_TYPE": "BRASS", "P_SIZE": 15}, {"_id": 0}
+)
+
+# Convert to Pandas DataFrame
+df_nation = pd.DataFrame(list(mongo_nation))
+df_region = pd.DataFrame(list(mongo_region))
+df_part = pd.DataFrame(list(mongo_part))
+
+# Redis Connection
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# Get data from Redis as DataFrame
+df_supplier = pd.read_json(redis_client.get('supplier'))
+df_partsupp = pd.read_json(redis_client.get('partsupp'))
+
+# Join and filter data
+df_europe_nations = df_nation[df_nation["N_REGIONKEY"].isin(df_region[df_region["R_NAME"] == "EUROPE"]["R_REGIONKEY"].tolist())]
+df_supplier = df_supplier[df_supplier["S_NATIONKEY"].isin(df_europe_nations["N_NATIONKEY"].tolist())]
+
+# Merge all dataframes to get required data
+merged_df = df_partsupp.merge(
+    df_supplier, left_on="PS_SUPPKEY", right_on="S_SUPPKEY"
+).merge(
+    df_nation, left_on="S_NATIONKEY", right_on="N_NATIONKEY"
+).merge(
+    df_part, left_on="PS_PARTKEY", right_on="P_PARTKEY"
+)
+
+# Sort by the specified order and extract necessary columns
+result_df = merged_df.sort_values(
+    by=["PS_SUPPLYCOST", "S_ACCTBAL", "N_NAME", "S_NAME", "P_PARTKEY"],
+    ascending=[True, False, True, True, True]
+)
+
+# Filter out the lowest supply cost only
+result_df = result_df.groupby('P_PARTKEY').head(1)
+
+# Select and order columns as specified
+output_df = result_df[[
+    "N_NAME", "P_MFGR", "P_PARTKEY", "S_ACCTBAL", "S_ADDRESS", 
+    "S_COMMENT", "S_NAME", "S_PHONE"
+]]
+
+# Write to CSV
+output_df.to_csv("query_output.csv", index=False)
+```
+
+And the Bash script (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+
+# Install Python MongoDB driver: pymongo
+pip install pymongo
+
+# Install Python Data Analysis library: pandas
+pip install pandas
+
+# Install DirectRedis for easier data retrieval from Redis as DataFrame
+pip install direct-redis
+```
+
+Save each of these snippets into their respective files, `query_min_cost_supplier.py` for the Python code and `install_dependencies.sh` for the Bash script. Run the Bash script to install dependencies before executing the Python script.
+created_time, 1701209503
+completion_tokens, 645
+prompt_tokens, 582
+total_tokens, 1227

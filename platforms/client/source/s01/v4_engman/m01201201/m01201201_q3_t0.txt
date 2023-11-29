@@ -1,0 +1,110 @@
+uid, chatcmpl-8PuuTOCN2SHfuINha3NEnQLfeh5iD
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: orders\nRelevant table names and their schemas in mysql:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: lineitem\nRelevant table names and their schemas in mongodb:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: customer\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Shipping Priority Query retrieves the shipping priority and potential revenue, defined as the sum of l_extendedprice * (1-l_discount), of the orders that had been ordered before 1995-03-05 but be shipped after 1995-03-15 and where market segment is BUILDING. Orders are listed in decreasing order of revenue. Please output the columns in the order of O_ORDERKEY, REVENUE, O_ORDERDATE, and O_SHIPPRIORITY.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 47.5911340713501
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code to execute the specified query:
+
+```python
+import pymysql
+import pymongo
+import pandas as pd
+from direct_redis import DirectRedis
+from pymongo.collection import Collection
+
+# Connection to MySQL
+mysql_conn = pymysql.connect(host='mysql', user='root', password='my-secret-pw', database='tpch')
+mysql_cursor = mysql_conn.cursor()
+
+# Connection to MongoDB
+mongodb_client = pymongo.MongoClient(host='mongodb', port=27017)
+mongodb_db = mongodb_client['tpch']
+lineitem_collection = Collection(mongodb_db, 'lineitem')
+
+# Connection to Redis
+redis_conn = DirectRedis(host='redis', port=6379, db=0)
+
+# Get orders from MySQL where O_ORDERDATE < '1995-03-05'
+mysql_query = """
+SELECT O_ORDERKEY, O_ORDERDATE, O_SHIPPRIORITY
+FROM orders
+WHERE O_ORDERDATE < '1995-03-05'
+"""
+mysql_cursor.execute(mysql_query)
+orders_data = mysql_cursor.fetchall()
+orders_df = pd.DataFrame(orders_data, columns=['O_ORDERKEY', 'O_ORDERDATE', 'O_SHIPPRIORITY'])
+
+# Get lineitem from MongoDB where L_SHIPDATE > '1995-03-15'
+lineitem_query = {
+    'L_SHIPDATE': {'$gt': '1995-03-15'}
+}
+lineitem_projection = {
+    'L_ORDERKEY': 1,
+    'L_EXTENDEDPRICE': 1,
+    'L_DISCOUNT': 1
+}
+lineitems_cursor = lineitem_collection.find(lineitem_query, lineitem_projection)
+lineitems_df = pd.DataFrame(list(lineitems_cursor))
+
+# Calculate REVENUE
+lineitems_df['REVENUE'] = lineitems_df['L_EXTENDEDPRICE'] * (1 - lineitems_df['L_DISCOUNT'])
+
+# Get customer from Redis
+customers_data = redis_conn.get('customer')
+customers_df = pd.read_json(customers_data, orient='records')
+
+# Filter customers where C_MKTSEGMENT is 'BUILDING'
+customers_df = customers_df[customers_df['C_MKTSEGMENT'] == 'BUILDING']
+
+# Merge all dataframes
+merged_df = orders_df.merge(lineitems_df, left_on='O_ORDERKEY', right_on='L_ORDERKEY')
+merged_df = merged_df.merge(customers_df, left_on='O_ORDERKEY', right_on='C_CUSTKEY')
+
+# Select and sort the data as per requirements
+result_df = merged_df[['O_ORDERKEY', 'REVENUE', 'O_ORDERDATE', 'O_SHIPPRIORITY']]
+result_df = result_df.sort_values(by='REVENUE', ascending=False)
+
+# Write result to a csv file
+result_df.to_csv('query_output.csv', index=False)
+
+# Close all connections
+mysql_cursor.close()
+mysql_conn.close()
+mongodb_client.close()
+```
+
+Please save the above code as `execute_query.py`.
+
+Here is the Bash script to install all dependencies:
+
+```bash
+#!/bin/bash
+
+# Create a virtual environment
+python3 -m venv venv
+
+# Activate the virtual environment
+source venv/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install the required packages
+pip install pymysql pymongo pandas direct-redis
+
+# Run the python code
+python execute_query.py
+
+# Deactivate the virtual environment
+deactivate
+```
+
+Please save the above script as `install_and_run.sh`. Remember to give it execute permissions with `chmod +x install_and_run.sh` before running it.
+created_time, 1701187653
+completion_tokens, 717
+prompt_tokens, 625
+total_tokens, 1342

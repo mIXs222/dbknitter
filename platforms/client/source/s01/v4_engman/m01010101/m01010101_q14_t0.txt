@@ -1,0 +1,86 @@
+uid, chatcmpl-8Q0YPinbDTtGyjG0lmht9penvwZCV
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: part\nRelevant table names and their schemas in mysql:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nmongodb has database named tpch with tables: lineitem\nRelevant table names and their schemas in mongodb:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query monitors the market response to a promotion such as TV advertisements or a special campaign. The Promotion Effect Query determines what percentage of the revenue between 1995-09-01 and 1995-10-01 was derived from promotional parts. The query considers only parts actually shipped and gives the percentage. Revenue is defined as (l_extendedprice * (1-l_discount)).\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.4265558719635
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the python code in `execute_query.py` to execute the query:
+
+```python
+import pymysql
+import pymongo
+import csv
+from datetime import datetime
+
+# Connecting to MySQL
+mysql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    database='tpch'
+)
+mysql_cursor = mysql_conn.cursor()
+mysql_query = """
+SELECT P_PARTKEY
+FROM part
+WHERE P_NAME LIKE '%Promo%'
+"""
+mysql_cursor.execute(mysql_query)
+promo_parts = [row[0] for row in mysql_cursor.fetchall()]
+mysql_cursor.close()
+mysql_conn.close()
+
+# Connecting to MongoDB
+mongodb_client = pymongo.MongoClient('mongodb', 27017)
+mongodb_db = mongodb_client['tpch']
+lineitem_collection = mongodb_db['lineitem']
+
+start_date = datetime(1995, 9, 1)
+end_date = datetime(1995, 10, 1)
+revenue = 0
+promo_revenue = 0
+
+for document in lineitem_collection.find({
+    'L_SHIPDATE': {'$gte': start_date, '$lt': end_date}
+}):
+    extended_price = document['L_EXTENDEDPRICE']
+    discount = document['L_DISCOUNT']
+    order_revenue = extended_price * (1 - discount)
+    if document['L_PARTKEY'] in promo_parts:
+        promo_revenue += order_revenue
+    revenue += order_revenue
+
+percentage = (promo_revenue / revenue) * 100 if revenue else 0
+
+# Writing to file
+with open('query_output.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(['Promotion Revenue Percentage'])
+    writer.writerow([percentage])
+
+print("Query executed. Results are written to query_output.csv")
+```
+
+For the bash script `install_dependencies.sh` to install all dependencies:
+
+```bash
+#!/bin/bash
+
+# Update the package index
+sudo apt-get update
+
+# Install pip if it's not already installed:
+sudo apt-get install -y python3-pip
+
+# Install the Python libraries
+pip3 install pymysql pymongo
+```
+
+Remember to give the bash script the necessary permissions to execute by running `chmod +x install_dependencies.sh` before running it.
+created_time, 1701209349
+completion_tokens, 462
+prompt_tokens, 484
+total_tokens, 946

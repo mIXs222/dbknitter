@@ -1,0 +1,89 @@
+uid, chatcmpl-8Q0K30abtwDJFhx4TwYWcWieNIv7W
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmysql has database named tpch with tables: nation\nRelevant table names and their schemas in mysql:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\nTo connect with mysql, use these connection information:\n- database name: tpch\n- username: root\n- password: my-secret-pw\n- hostname: mysql\n- instruction: Use the python library 'pymysql' to connect the mysql server. Do NOT use 'pymysql.cursors.DictCursor'.\n\nredis has database named 0 with tables: supplier, partsupp\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds the most important subset of suppliers' stock in GERMANY., The Important Stock Identification Query finds, from scanning the available stock of suppliers in GERMANY, all the parts that represent a significant percentage (larger then 0.0001) of the total value of all available parts. The query displays the part number and the value of those parts in descending order of value.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 28.943521976470947
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code:
+
+```python
+# query.py
+
+import pymysql
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Connect to MySQL database
+my_sql_conn = pymysql.connect(
+    host='mysql',
+    user='root',
+    password='my-secret-pw',
+    db='tpch',
+)
+
+# Query nation table in MySQL to get German nation key
+with my_sql_conn.cursor() as cursor:
+    cursor.execute("SELECT N_NATIONKEY FROM nation WHERE N_NAME = 'GERMANY'")
+    nation_result = cursor.fetchone()
+    german_nation_key = nation_result[0] if nation_result else None
+
+# Close MySQL connection
+my_sql_conn.close()
+
+# Connect to Redis database
+redis_conn = DirectRedis(host='redis', port=6379)
+
+# Get supplier and partsupp tables from Redis and convert to DataFrames
+supplier_df = pd.read_json(redis_conn.get('supplier'))
+partsupp_df = pd.read_json(redis_conn.get('partsupp'))
+
+# Close Redis connection
+redis_conn.close()
+
+# Filter suppliers in GERMANY and calculate total available parts value
+if german_nation_key is not None:
+    german_suppliers_df = supplier_df[supplier_df['S_NATIONKEY'] == german_nation_key].copy()
+    german_partsupp_df = partsupp_df[partsupp_df['PS_SUPPKEY'].isin(german_suppliers_df['S_SUPPKEY'])]
+    german_partsupp_df['PART_VALUE'] = german_partsupp_df['PS_AVAILQTY'] * german_partsupp_df['PS_SUPPLYCOST']
+    total_value = german_partsupp_df['PART_VALUE'].sum()
+
+    # Find all parts that represent a significant percentage of the total value
+    important_parts_df = german_partsupp_df[german_partsupp_df['PART_VALUE'] > 0.0001 * total_value]
+
+    # Select relevant columns and sort the results
+    important_parts_df = important_parts_df[['PS_PARTKEY', 'PART_VALUE']]
+    important_parts_df = important_parts_df.sort_values(by='PART_VALUE', ascending=False)
+
+    # Save the results to CSV
+    important_parts_df.to_csv('query_output.csv', index=False)
+```
+
+And here is the bash script for dependencies installation:
+
+```bash
+# setup.sh
+
+# Update and install Python
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip
+
+# Install pymysql and pandas
+pip3 install pymysql pandas
+
+# Install direct_redis
+pip3 install git+https://github.com/Avature/direct-redis.git
+```
+
+Be sure to mark this bash script as executable and run it before running the Python code.
+
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+created_time, 1701208459
+completion_tokens, 564
+prompt_tokens, 467
+total_tokens, 1031

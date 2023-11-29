@@ -1,0 +1,92 @@
+uid, chatcmpl-8Q1pdD0k7n6k9fVHZWV5GpqhhC2ug
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: part, partsupp\nRelevant table names and their schemas in mongodb:\n- part: P_PARTKEY, P_NAME, P_MFGR, P_BRAND, P_TYPE, P_SIZE, P_CONTAINER, P_RETAILPRICE, P_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: supplier\nRelevant table names and their schemas in redis:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds out how many suppliers can supply parts with given attributes. It might be used, for example, to determine whether there is a sufficient number of suppliers for heavily ordered parts., The Parts/Supplier Relationship Query counts the number of suppliers who can supply parts that satisfy a particular customer's requirements which does not have a brand id of 45. The customer is interested in parts of eight different sizes which are one of 49, 14, 23, 45, 19, 3, 36, or 9, as long as they are not of MEDIUM POLISHED, not of a brand 45, and not from a supplier who has had complaints registered at the Better Business Bureau. Results must be presented in descending count and ascending brand, type, and size.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 26.3222873210907
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code to execute the mentioned query across MongoDB and Redis:
+
+```python
+# query.py
+
+from pymongo import MongoClient
+import pandas as pd
+import direct_redis
+
+# MongoDB Connection Setup
+mongo_client = MongoClient("mongodb", 27017)
+mongo_db = mongo_client['tpch']
+
+# Retrieve MongoDB Documents
+part_col = mongo_db['part']
+partsupp_col = mongo_db['partsupp']
+
+# Query for the desired parts excluding brand id of 45
+part_query = {
+    'P_SIZE': {'$in': [49, 14, 23, 45, 19, 3, 36, 9]},
+    'P_TYPE': {'$ne': 'MEDIUM POLISHED'},
+    'P_BRAND': {'$ne': 'Brand#45'}
+}
+
+# Convert MongoDB documents to Pandas DataFrame
+part_df = pd.DataFrame(list(part_col.find(part_query, {'_id': 0})))
+partsupp_df = pd.DataFrame(list(partsupp_col.find({}, {'_id': 0})))
+
+# Redis Connection Setup
+r = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+# Retrieve Redis Data for supplier
+supplier_df = pd.read_msgpack(r.get('supplier'))
+
+# Filter out suppliers with complaints
+filtered_supplier_df = supplier_df[~supplier_df['S_COMMENT'].str.contains('Customer Complaints')]
+
+# Merge Tables on part key
+joined_df = partsupp_df.merge(part_df, how='inner', left_on='PS_PARTKEY', right_on='P_PARTKEY')
+
+# Merge with supplier data
+final_df = joined_df.merge(filtered_supplier_df, how='inner', left_on='PS_SUPPKEY', right_on='S_SUPPKEY')
+
+# Count distinct suppliers
+result_df = final_df.groupby(['P_BRAND', 'P_TYPE', 'P_SIZE']).agg({'S_SUPPKEY': 'nunique'}).reset_index()
+
+# Rename columns for final output
+result_df.rename(columns={'S_SUPPKEY': 'SUPPLIER_COUNT'}, inplace=True)
+
+# Sort as specified by the query description
+result_df.sort_values(by=['SUPPLIER_COUNT', 'P_BRAND', 'P_TYPE', 'P_SIZE'], ascending=[False, True, True, True], inplace=True)
+
+# Save to CSV
+result_df.to_csv('query_output.csv', index=False)
+```
+
+Next, here is the Bash script to install all dependencies needed to run that Python code:
+
+```bash
+#!/bin/bash
+# install_dependencies.sh
+
+# Update package list
+apt-get update
+
+# Install pip for Python package management
+apt-get install -y python3-pip
+
+# Install MongoDB Python Client - pymongo
+pip3 install pymongo
+
+# Install direct_redis
+pip3 install git+https://github.com/RedisLabsModules/direct_redis.git
+
+# Install pandas
+pip3 install pandas
+```
+
+Make sure to give the Bash script execution permissions and then you can run it to install the necessary dependencies before executing the Python script.
+created_time, 1701214261
+completion_tokens, 618
+prompt_tokens, 545
+total_tokens, 1163

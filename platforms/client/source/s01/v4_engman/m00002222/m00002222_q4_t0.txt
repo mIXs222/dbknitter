@@ -1,0 +1,88 @@
+uid, chatcmpl-8PzXb5nZLlI9tb6JW2fByJeRS3mQN
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: orders, lineitem\nRelevant table names and their schemas in redis:\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Order Priority Checking Query counts the number of orders ordered between 1993-07-01 and 1993-10-01 in which at least one lineitem was received by the customer later than its committed date. The query lists the count of such orders for each order priority sorted in ascending priority order. Please output the columns in the order of ORDER_COUNT and O_ORDERPRIORITY\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 37.5702919960022
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code to obtain and process the data according to the described query:
+
+**Python Code (query_data.py):**
+```python
+import pandas as pd
+import direct_redis
+
+# Function to convert string dates to pandas datetime objects
+def convert_dates(df, *cols):
+    for col in cols:
+        df[col] = pd.to_datetime(df[col])
+
+# Function to perform the query
+def order_priority_checking_query(orders_df, lineitem_df):
+    # Join orders and lineitem on order key
+    merged_df = orders_df.merge(lineitem_df, left_on='O_ORDERKEY', right_on='L_ORDERKEY')
+
+    # Filter orders by date range
+    filtered_orders = merged_df[
+        (merged_df['O_ORDERDATE'] >= '1993-07-01') &
+        (merged_df['O_ORDERDATE'] <= '1993-10-01')
+    ]
+
+    # Add a flag for late receipt
+    filtered_orders['late_receipt'] = filtered_orders['L_COMMITDATE'] < filtered_orders['L_RECEIPTDATE']
+
+    # Count orders with at least one late receipt per priority
+    result = filtered_orders[filtered_orders['late_receipt']].groupby(
+        'O_ORDERPRIORITY')['O_ORDERKEY'].nunique().reset_index()
+
+    # Rename columns
+    result.columns = ['O_ORDERPRIORITY', 'ORDER_COUNT']
+
+    # Sort by order priority
+    result.sort_values(by='O_ORDERPRIORITY', inplace=True)
+
+    # Write result to CSV
+    result.to_csv('query_output.csv', index=False)
+
+def main():
+    # Establish connection to Redis
+    r = direct_redis.DirectRedis(host='redis', port=6379, db=0)
+
+    # Load tables from Redis
+    orders_df = pd.read_json(r.get('orders').decode('utf-8'))
+    lineitem_df = pd.read_json(r.get('lineitem').decode('utf-8'))
+
+    # Convert date columns to datetime
+    convert_dates(orders_df, 'O_ORDERDATE')
+    convert_dates(lineitem_df, 'L_COMMITDATE', 'L_RECEIPTDATE')
+
+    # Perform the query
+    order_priority_checking_query(orders_df, lineitem_df)
+
+if __name__ == '__main__':
+    main()
+```
+
+**Bash Script to Install Dependencies (install_dependencies.sh):**
+```bash
+#!/bin/bash
+
+# Ensure pip is installed
+sudo apt update
+sudo apt install -y python3-pip
+
+# Install pandas
+pip3 install pandas
+
+# Install the direct_redis package
+pip3 install git+https://github.com/{username}/direct_redis.git
+# Note: Replace {username} with the actual GitHub username where the direct_redis repository is hosted.
+```
+
+Make sure to replace `{username}` with the actual username where `direct_redis` package is hosted if it's hosted on GitHub. If `direct_redis` is a locally available package, you will need to adjust the bash script accordingly.
+created_time, 1701205455
+completion_tokens, 611
+prompt_tokens, 423
+total_tokens, 1034

@@ -1,0 +1,75 @@
+uid, chatcmpl-8PzJXMeSccvYf6qZcyFnzELQgSzji
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: customer, orders\nRelevant table names and their schemas in redis:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Global Sales Opportunity Query identifies geographies where there are customers who may be likely to make a purchase. This query counts how many customers within a specific range of country codes have not placed orders for 7 years whose account balance is greater than the average account balance of people whose account balance is larger than 0.00 in those countries. It also reflects the magnitude of that balance. Country code is defined as the first two characters of c_phone which should be one of '20', '40', '22', '30', '39', '42', or '21'. Please output the columns in the order of CNTRYCODE, number of such customers, and total account balance of those customers. It should be by in the order of CNTRYCODE ascending\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 37.168874979019165
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the required Python code to execute the given query on your Redis data:
+
+**Python Code (query_redis.py):**
+```python
+import pandas as pd
+from direct_redis import DirectRedis
+
+# Create a connection to Redis
+redis_client = DirectRedis(host='redis', port=6379, db=0)
+
+# Read the customer and orders tables into Pandas DataFrames
+df_customer = pd.read_json(redis_client.get('customer'))
+df_orders = pd.read_json(redis_client.get('orders'))
+
+# Prepare the data according to the query conditions
+# Extract the country code from the phone number
+df_customer['CNTRYCODE'] = df_customer['C_PHONE'].str.slice(0, 2)
+# Convert O_ORDERDATE to DateTime
+df_orders['O_ORDERDATE'] = pd.to_datetime(df_orders['O_ORDERDATE'])
+# Filter the customer DataFrame for customers from the specified country codes
+country_codes = ['20', '40', '22', '30', '39', '42', '21']
+df_customer = df_customer[df_customer['CNTRYCODE'].isin(country_codes)]
+
+# Calculate the average account balance for accounts greater than 0.00
+avg_account_balance = df_customer[df_customer['C_ACCTBAL'] > 0.00]['C_ACCTBAL'].mean()
+
+# Filter customers who have not placed orders for 7 years
+seven_years_ago = pd.Timestamp.now() - pd.DateOffset(years=7)
+df_customer_with_no_recent_orders = df_customer[~df_customer['C_CUSTKEY'].isin(df_orders[df_orders['O_ORDERDATE'] >= seven_years_ago]['O_CUSTKEY'])]
+
+# Filter customers whose account balance is greater than the average account balance
+df_filtered_customers = df_customer_with_no_recent_orders[df_customer_with_no_recent_orders['C_ACCTBAL'] > avg_account_balance]
+
+# Group by country code and calculate the required statistics
+result = df_filtered_customers.groupby('CNTRYCODE').agg(
+    num_customers=('C_CUSTKEY', 'count'),
+    total_account_balance=('C_ACCTBAL', 'sum')
+).reset_index()
+
+# Sort the results by CNTRYCODE
+result = result.sort_values('CNTRYCODE')
+
+# Write the output to query_output.csv
+result.to_csv('query_output.csv', index=False)
+
+```
+
+**Bash Script (install_dependencies.sh):**
+```bash
+#!/bin/bash
+
+# Update package list and install Python and pip if they aren't already installed
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip
+
+# Install the required Python packages
+pip3 install pandas
+pip3 install direct_redis
+
+```
+
+Make sure to give execute permissions to the bash script using `chmod +x install_dependencies.sh` before running it.
+created_time, 1701204583
+completion_tokens, 569
+prompt_tokens, 457
+total_tokens, 1026

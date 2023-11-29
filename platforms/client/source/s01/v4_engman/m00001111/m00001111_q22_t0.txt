@@ -1,0 +1,97 @@
+uid, chatcmpl-8PzVOcVBRS8CYq6W01ZqNjnEh28eJ
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: customer, orders\nRelevant table names and their schemas in mongodb:\n- customer: C_CUSTKEY, C_NAME, C_ADDRESS, C_NATIONKEY, C_PHONE, C_ACCTBAL, C_MKTSEGMENT, C_COMMENT\n- orders: O_ORDERKEY, O_CUSTKEY, O_ORDERSTATUS, O_TOTALPRICE, O_ORDERDATE, O_ORDERPRIORITY, O_CLERK, O_SHIPPRIORITY, O_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Global Sales Opportunity Query identifies geographies where there are customers who may be likely to make a purchase. This query counts how many customers within a specific range of country codes have not placed orders for 7 years whose account balance is greater than the average account balance of people whose account balance is larger than 0.00 in those countries. It also reflects the magnitude of that balance. Country code is defined as the first two characters of c_phone which should be one of '20', '40', '22', '30', '39', '42', or '21'. Please output the columns in the order of CNTRYCODE, number of such customers, and total account balance of those customers. It should be by in the order of CNTRYCODE ascending\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 31.55844497680664
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here is the Python code (query.py):
+
+```python
+from pymongo import MongoClient
+import csv
+from datetime import datetime, timedelta
+
+# Connect to MongoDB instance
+client = MongoClient("mongodb", 27017)
+db = client["tpch"]
+
+# Prepare the pipeline for the aggregation framework
+seven_years_ago = datetime.now() - timedelta(days=7*365)
+
+pipeline = [
+    {'$match': {
+        'C_PHONE': {'$regex': '^(20|40|22|30|39|42|21)'},
+        'C_ACCTBAL': {'$gt': 0}
+    }},
+    {'$group': {
+        '_id': {'CNTRYCODE': {'$substr': ['$C_PHONE', 0, 2]}},
+        'average_balance': {'$avg': '$C_ACCTBAL'},
+        'all_customers': {'$push': '$$ROOT'}
+    }},
+    {'$project': {
+        'all_customers': {
+            '$filter': {
+                'input': '$all_customers',
+                'as': 'customer',
+                'cond': {'$and': [
+                    {'$not': [{'$eq': ['$$customer.O_ORDERDATE', None]}]},
+                    {'$gt': ['$$customer.O_ORDERDATE', seven_years_ago]},
+                    {'$gt': ['$$customer.C_ACCTBAL', '$average_balance']}
+                ]}
+            }
+        },
+        'average_balance': 1
+    }},
+    {'$unwind': '$all_customers'},
+    {'$group': {
+        '_id': '$_id.CNTRYCODE',
+        'num_of_customers': {'$sum': 1},
+        'total_balance': {'$sum': '$all_customers.C_ACCTBAL'},
+    }},
+    {'$sort': {'_id': 1}}
+]
+
+# Run the aggregation pipeline
+results = db.customer.aggregate(pipeline)
+
+# Write the results to a CSV file
+with open('query_output.csv', 'w', newline='') as csvfile:
+    fieldnames = ['CNTRYCODE', 'num_of_customers', 'total_balance']
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    
+    writer.writeheader()
+    for result in results:
+        writer.writerow({
+            'CNTRYCODE': result['_id'],
+            'num_of_customers': result['num_of_customers'],
+            'total_balance': result['total_balance']
+        })
+
+# Close MongoDB client
+client.close()
+```
+
+And here is the corresponding Bash script (install_dependencies.sh):
+
+```bash
+#!/bin/bash
+
+# Make sure the script exits on first error
+set -e
+
+# Update your system's package list
+sudo apt-get update
+
+# Install Python3 and pip if they are not installed
+sudo apt-get install -y python3 python3-pip
+
+# Install pymongo using pip
+pip3 install pymongo
+```
+created_time, 1701205318
+completion_tokens, 592
+prompt_tokens, 443
+total_tokens, 1035

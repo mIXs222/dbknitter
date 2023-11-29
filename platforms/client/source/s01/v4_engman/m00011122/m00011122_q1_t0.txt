@@ -1,0 +1,80 @@
+uid, chatcmpl-8Q03JKtaX8bXhUHLAgp0OpWeofPXt
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nredis has database named 0 with tables: lineitem\nRelevant table names and their schemas in redis:\n- lineitem: L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThe Pricing Summary Report Query provides a summary pricing report for all lineitems shipped before 1998-09-02. The query lists totals for quantity, extended price, discounted extended price, discounted extended price plus tax, average quantity, average extended price, and average discount. These aggregates are grouped by RETURNFLAG and LINESTATUS, and listed in ascending order of RETURNFLAG and LINESTATUS. A count of the number of lineitems in each group is included.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 27.505940914154053
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, Here's the Python code that you can use to execute the query:
+
+```python
+# pricing_summary_report.py
+
+import pandas as pd
+import direct_redis
+
+def execute_pricing_summary_report():
+    connection_details = {
+        'database': '0',
+        'port': 6379,
+        'hostname': 'redis',
+    }
+    # Connect to Redis
+    redis_db = direct_redis.DirectRedis(host=connection_details['hostname'], port=connection_details['port'], db=connection_details['database'])
+    
+    # Convert the Redis data to Pandas DataFrame.
+    lineitem_df = pd.read_json(redis_db.get('lineitem'), orient='records')
+
+    # Filter out the lineitems shipped before 1998-09-02
+    lineitem_df['L_SHIPDATE'] = pd.to_datetime(lineitem_df['L_SHIPDATE'])
+    filtered_df = lineitem_df[lineitem_df['L_SHIPDATE'] < '1998-09-02']
+
+    # Compute the required aggregates
+    summary_df = filtered_df.groupby(['L_RETURNFLAG', 'L_LINESTATUS']).agg(
+        quantity_total=pd.NamedAgg(column='L_QUANTITY', aggfunc='sum'),
+        extended_price_total=pd.NamedAgg(column='L_EXTENDEDPRICE', aggfunc='sum'),
+        discounted_price_total=pd.NamedAgg(column=lambda x: (x['L_EXTENDEDPRICE'] * (1 - x['L_DISCOUNT'])).sum()),
+        charge_total=pd.NamedAgg(column=lambda x: (x['L_EXTENDEDPRICE'] * (1 - x['L_DISCOUNT']) * (1 + x['L_TAX'])).sum()),
+        average_quantity=pd.NamedAgg(column='L_QUANTITY', aggfunc='mean'),
+        average_extended_price=pd.NamedAgg(column='L_EXTENDEDPRICE', aggfunc='mean'),
+        average_discount=pd.NamedAgg(column='L_DISCOUNT', aggfunc='mean'),
+        count_order=pd.NamedAgg(column='L_ORDERKEY', aggfunc='count')
+    ).reset_index()
+
+    # Sort the results
+    summary_df.sort_values(by=['L_RETURNFLAG', 'L_LINESTATUS'], inplace=True)
+    
+    # Write the DataFrame to a CSV file
+    summary_df.to_csv('query_output.csv', index=False)
+    
+if __name__ == '__main__':
+    execute_pricing_summary_report()
+```
+
+And here's the accompanying bash script to install all dependencies:
+
+```bash
+# install_dependencies.sh
+
+#!/bin/bash
+
+# Create and activate a virtual environment (optional)
+# virtualenv query_env
+# source query_env/bin/activate
+
+# Install necessary dependencies
+pip install pandas
+pip install direct-redis
+
+# Run the Python script (Make sure to mark it as executable or use python3 to run)
+# chmod +x pricing_summary_report.py
+# ./pricing_summary_report.py
+# OR
+# python3 pricing_summary_report.py
+```
+created_time, 1701207421
+completion_tokens, 591
+prompt_tokens, 392
+total_tokens, 983

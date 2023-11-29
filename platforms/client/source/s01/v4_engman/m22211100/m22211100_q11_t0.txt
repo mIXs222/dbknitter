@@ -1,0 +1,73 @@
+uid, chatcmpl-8Q12uwB1leeICOKO5LrTC3FNpQIOR
+message_0,{'role': 'user', 'content': "I have several databases of different platforms.\n\nmongodb has database named tpch with tables: supplier, partsupp\nRelevant table names and their schemas in mongodb:\n- supplier: S_SUPPKEY, S_NAME, S_ADDRESS, S_NATIONKEY, S_PHONE, S_ACCTBAL, S_COMMENT\n- partsupp: PS_PARTKEY, PS_SUPPKEY, PS_AVAILQTY, PS_SUPPLYCOST, PS_COMMENT\nTo connect with mongodb, use these connection information:\n- database name: tpch\n- port: 27017\n- hostname: mongodb\n- instruction: Use 'pymongo' to connect to the mongodb server.\n\nredis has database named 0 with tables: nation\nRelevant table names and their schemas in redis:\n- nation: N_NATIONKEY, N_NAME, N_REGIONKEY, N_COMMENT\nTo connect with redis, use these connection information:\n- database name: 0\n- port: 6379\n- hostname: redis\n- instruction: Use `direct_redis.DirectRedis` in place of `redis.Redis` to read Pandas DataFrame with `get('tablename')`.\n\n\nBut a user thought that all the tables are stored in a SQL DBMS, and wrote the following query: \n```english\nThis query finds the most important subset of suppliers' stock in GERMANY., The Important Stock Identification Query finds, from scanning the available stock of suppliers in GERMANY, all the parts that represent a significant percentage (larger then 0.0001) of the total value of all available parts. The query displays the part number and the value of those parts in descending order of value.\n```\nGenerate a python code to execute this query on my original data (i.e. get the data from different data platforms and combine the results). Query's output should be written to the file query_output.csv. Without an explanation, please seperately output 1. the python code (.py) and 2. a bash script (.sh) to install all dependencies to run that python code.\nNote that if a table is not in a database, it should not appear in the query for that database."},2
+input_message_len,[2]
+MAX_TOKEN, 2000
+data, 
+runtime, 21.088914155960083
+output_text, 
+gpt_model, gpt-4-1106-preview
+finished_reason, stop
+response, 1. Python code (query_execution.py):
+```python
+import pymongo
+from bson import json_util
+import pandas as pd
+from direct_redis import DirectRedis
+import csv
+
+# MongoDB connection
+client = pymongo.MongoClient("mongodb://mongodb:27017/")
+mongo_db = client["tpch"]
+supplier = pd.DataFrame(list(mongo_db.supplier.find(
+    {'S_NATIONKEY': {'$exists': True}},
+    {'S_SUPPKEY': 1, '_id': 0}
+)))
+partsupp = pd.DataFrame(list(mongo_db.partsupp.find(
+    {}, 
+    {'PS_PARTKEY': 1, 'PS_SUPPKEY': 1, 'PS_AVAILQTY': 1, 'PS_SUPPLYCOST': 1, '_id': 0}
+)))
+
+# Redis connection
+redis_client = DirectRedis(port=6379, host="redis")
+nation_json = redis_client.get('nation')
+nation_df = pd.read_json(nation_json, orient='records')
+
+# Filter German suppliers
+german_nationkeys = nation_df[nation_df['N_NAME'] == 'GERMANY']['N_NATIONKEY'].tolist()
+german_suppliers = supplier[supplier['S_NATIONKEY'].isin(german_nationkeys)]
+
+# Join suppliers with partsupp on S_SUPPKEY = PS_SUPPKEY
+joined_data = pd.merge(
+    german_suppliers,
+    partsupp,
+    how="inner",
+    left_on="S_SUPPKEY",
+    right_on="PS_SUPPKEY"
+)
+
+# Calculate the value, sum of value, and important stock
+joined_data['VALUE'] = joined_data['PS_AVAILQTY'] * joined_data['PS_SUPPLYCOST']
+total_value = joined_data['VALUE'].sum()
+important_stock_condition = (joined_data['VALUE'] > total_value * 0.0001)
+important_stock = joined_data[important_stock_condition]
+
+# Prepare results
+results = important_stock[['PS_PARTKEY', 'VALUE']]
+results = results.sort_values('VALUE', ascending=False)
+
+# Write results to CSV
+results.to_csv('query_output.csv', index=False)
+```
+
+2. Bash script (install_dependencies.sh):
+```bash
+#!/bin/bash
+
+pip install pymongo
+pip install pandas
+pip install direct_redis
+```
+created_time, 1701211240
+completion_tokens, 469
+prompt_tokens, 447
+total_tokens, 916
